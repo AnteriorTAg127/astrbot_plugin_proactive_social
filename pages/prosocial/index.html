@@ -334,6 +334,93 @@
       }
       .text-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
+      /* ===== 配置面板扩展控件（select / textarea / schedule 编辑器）===== */
+      .cfg-field select {
+        padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+        background: var(--card-2); color: var(--text); font-size: 13px; width: 100%;
+        font-family: var(--mono);
+        transition: border-color .15s, box-shadow .15s;
+      }
+      .cfg-field select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+      .cfg-field select.dirty, .cfg-field textarea.dirty, .cfg-field input.dirty { border-color: var(--warn); }
+      .cfg-field textarea.list-input { min-height: 70px; }
+
+      /* schedule 时段编辑器：增删行 */
+      .sched-editor { display: flex; flex-direction: column; gap: 6px; }
+      .sched-row { display: flex; align-items: center; gap: 6px; }
+      .sched-row input[type=time] {
+        padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px;
+        background: var(--card-2); color: var(--text); font-size: 13px;
+        font-family: var(--mono); font-variant-numeric: tabular-nums; width: 108px;
+        transition: border-color .15s, box-shadow .15s;
+      }
+      .sched-row input[type=time]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+      .sched-row .sep { color: var(--muted); font-size: 12px; }
+      .sched-row .del {
+        width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border);
+        background: var(--card-2); color: var(--err); cursor: pointer; font-size: 14px;
+        display: flex; align-items: center; justify-content: center; line-height: 1;
+        transition: background .15s;
+      }
+      .sched-row .del:hover { background: var(--err-soft); }
+      .sched-add {
+        align-self: flex-start; padding: 3px 10px; font-size: 12px; border-radius: 6px;
+        border: 1px dashed var(--border-strong); background: transparent; color: var(--accent);
+        cursor: pointer; transition: background .15s;
+      }
+      .sched-add:hover { background: var(--accent-soft); }
+      .sched-editor.dirty .sched-row { border-left: 2px solid var(--warn); padding-left: 4px; }
+
+      /* ===== Toast ===== */
+      .toast {
+        position: fixed; bottom: 24px; left: 50%;
+        transform: translateX(-50%) translateY(20px);
+        background: var(--card); color: var(--text); border: 1px solid var(--border-strong);
+        padding: 10px 18px; border-radius: 8px; box-shadow: var(--shadow-lg);
+        font-size: 13px; z-index: 100; opacity: 0; pointer-events: none;
+        transition: opacity .2s, transform .2s; max-width: 80%; text-align: center;
+      }
+      .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+      .toast.ok { border-color: var(--ok); color: var(--ok); }
+      .toast.err { border-color: var(--err); color: var(--err); }
+
+      /* ===== 配置向导 ===== */
+      .wizard-btn {
+        padding: 6px 14px; border-radius: 7px; border: 1px solid var(--accent);
+        background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600;
+        cursor: pointer; transition: background .15s, color .15s;
+      }
+      .wizard-btn:hover { background: var(--accent); color: #fff; }
+      .wizard-overlay {
+        position: fixed; inset: 0; background: rgba(15, 23, 42, .55);
+        z-index: 90; display: none; align-items: center; justify-content: center;
+        padding: 20px;
+      }
+      .wizard-overlay.show { display: flex; }
+      .wizard-card {
+        background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+        box-shadow: var(--shadow-lg); width: 100%; max-width: 640px; max-height: 90vh;
+        display: flex; flex-direction: column; overflow: hidden;
+      }
+      .wizard-head { padding: 16px 20px 10px; border-bottom: 1px solid var(--border); }
+      .wizard-head .title { font-size: 16px; font-weight: 600; }
+      .wizard-head .desc { font-size: 12px; color: var(--muted); margin-top: 4px; }
+      .wizard-progress { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+      .wizard-progress .step-label { font-family: var(--mono); white-space: nowrap; }
+      .wizard-progress .bar { flex: 1; height: 6px; background: var(--bg-elev); border-radius: 3px; overflow: hidden; }
+      .wizard-progress .bar > i { display: block; height: 100%; background: var(--accent); transition: width .25s; }
+      .wizard-body { padding: 16px 20px; overflow: auto; flex: 1; }
+      .wizard-body .cfg-grid { grid-template-columns: 1fr; }
+      .wizard-summary { font-size: 12px; }
+      .wizard-summary .sum-title { font-weight: 600; margin-bottom: 8px; color: var(--text); }
+      .wizard-summary .row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+      .wizard-summary .row:last-child { border-bottom: none; }
+      .wizard-summary .k { color: var(--muted); font-family: var(--mono); }
+      .wizard-summary .v { font-family: var(--mono); text-align: right; word-break: break-all; }
+      .wizard-summary .empty { color: var(--subtle); font-style: italic; padding: 12px 0; text-align: center; }
+      .wizard-foot { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+      .wizard-foot .spacer { flex: 1; }
+
       @media (max-width: 1100px) {
         .span-3, .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: span 12; }
       }
@@ -353,6 +440,7 @@
       <span class="meta" id="lastRefresh">未刷新</span>
       <span id="errBanner"></span>
       <div class="spacer"></div>
+      <button class="wizard-btn" id="wizardBtn">⚙️ 配置向导</button>
       <button class="icon-btn" id="themeBtn" title="切换主题">◐</button>
     </header>
 
@@ -466,6 +554,30 @@
       </section>
     </main>
 
+    <!-- Toast 提示 -->
+    <div class="toast" id="toast"></div>
+
+    <!-- 配置向导遮罩 -->
+    <div class="wizard-overlay" id="wizardOverlay">
+      <div class="wizard-card">
+        <div class="wizard-head">
+          <div class="title" id="wizTitle">配置向导</div>
+          <div class="desc" id="wizDesc"></div>
+          <div class="wizard-progress">
+            <span class="step-label" id="wizStepLabel">1/7</span>
+            <span class="bar"><i id="wizProgressBar" style="width:14%"></i></span>
+          </div>
+        </div>
+        <div class="wizard-body" id="wizBody"></div>
+        <div class="wizard-foot">
+          <button class="btn ghost" id="wizPrev">上一步</button>
+          <button class="btn" id="wizNext">下一步</button>
+          <div class="spacer"></div>
+          <button class="btn ghost" id="wizExit">退出</button>
+        </div>
+      </div>
+    </div>
+
     <!-- bridge SDK：内联脚本同步访问需显式引入（见 plugin-pages.md）-->
     <script src="/api/plugin/page/bridge-sdk.js"></script>
     <script>
@@ -477,107 +589,167 @@
       var loadedConfig = {};         // 配置快照（脏字段判定基线）
       var loadedGroups = null;       // 群视图快照
       var pollTimer = null;
-      var currentCfgTab = "fusion";  // 当前激活的配置分组
+      var currentCfgTab = "basic";  // 当前激活的配置分组
+
+      // ============ 默认配置（镜像 ConfigStore.DEFAULT_CONFIG，用于向导首启判定与改动汇总）============
+      var DEFAULT_CONFIG = {
+        enable: true, dry_run: false, embedding_provider_id: "",
+        persona_text: "你是一个友善的群聊机器人。", persona_knowledge: "",
+        group_mode: "whitelist", group_whitelist: [],
+        short_window_size: 8, long_window_size: 20, long_window_top_n: 6, long_window_summarize: false,
+        base_threshold: 0.65, core_interest_modifier: 0.7, general_interest_modifier: 1.0, edge_interest_modifier: 1.3,
+        expecting_modifier: 0.8, personal_threshold: 0.55, hate_similarity_threshold: 0.75,
+        w_int: 1.0, w_topic: 0.4, w_resp: 0.8, w_cooldown: 0.5, w_silence: 0.2,
+        batch_interval_min: 2.0, batch_interval_max: 5.0, cooldown_messages: 4, expecting_duration: 30,
+        personal_track_timeout: 30, track_irrelevant_msgs: 3,
+        embedding_rate_limit_per_min: 30, buffer_max_size: 200, topic_turn_keywords: ["说正事", "别聊了", "换个话题", "停"],
+        schedule: [{ start: "09:00", end: "12:00" }, { start: "14:00", end: "18:00" }, { start: "20:00", end: "23:00" }],
+        schedule_jitter_minutes: 30, poll_interval: 300, poll_jitter: 120, monitoring_duration: 120, group_cooldown: 180,
+        glance_enable: true, glance_group_count: 3, glance_min_score: 0.85, hot_group_msg_limit: 30, silent_group_minutes: 10,
+        replay_speed: 1.0,
+        enable_rule_channel: true, enable_vector_channel: true, fusion_weight_rule: 0.4,
+        dynamic_fusion_enabled: false, dynamic_alpha_wake: 0.8, dynamic_alpha_short_expect: 0.2,
+        rule_direct_wakeup_words: [], rule_context_wakeup_words: [], rule_context_threshold: 50,
+        rule_question_enabled: true, rule_question_threshold: 65, rule_score_normalize: 100.0,
+        fatigue_recovery_rate: 0.1, fatigue_limit: 5.0, fatigue_cost_active: 1.2, fatigue_cost_passive: 0.8,
+        fatigue_cost_track: 0.6, fatigue_cost_glance: 1.5, fatigue_high_modifier: 1.2, fatigue_medium_modifier: 1.1,
+        fatigue_suppress_enabled: true,
+        after_reply_probability: 0.6, probability_duration: 30, wait_window_duration_ms: 3000,
+        wait_window_max_extra: 3, proactive_temp_boost: 0.5, proactive_boost_duration: 60
+      };
 
       // ============ 配置字段定义（key 与后端 get_config_view 返回键一致）============
-      // 分组：双通道与融合 / 规则引擎 / 疲劳度 / 惯性窗口 / 基础阈值 / 批次冷却 / 调度轮询 / 瞥眼 / DRY
+      // 分组：基础设置 / 阈值与权重 / 批次与冷却 / 调度与轮询 / 瞥眼与DRY / 双通道与融合 / 规则引擎 / 疲劳度 / 惯性窗口
+      // 共 71 项普通参数（chat_provider_id 不在面板，留主面板原生 select_provider）
+      // hint 取自 _conf_schema.json 的 description / hint。min/max 取自 ConfigStore.VALIDATORS。
       var CONFIG_GROUPS = [
         {
-          id: "fusion", label: "双通道与融合",
+          id: "basic", label: "基础设置",
           fields: [
-            { key: "enable_rule_channel", label: "启用规则通道 A", type: "bool" },
-            { key: "enable_vector_channel", label: "启用向量通道 B", type: "bool" },
-            { key: "fusion_weight_rule", label: "融合权重 α（A 占比）", type: "float", min: 0, max: 1, step: 0.01, hint: "final = α·a + (1−α)·b" },
-            { key: "dynamic_fusion_enabled", label: "动态权重", type: "bool" },
-            { key: "dynamic_alpha_wake", label: "强唤醒/@ 时的 α", type: "float", min: 0, max: 1, step: 0.01 },
-            { key: "dynamic_alpha_short_expect", label: "短消息+期待时的 α", type: "float", min: 0, max: 1, step: 0.01 },
-          ]
-        },
-        {
-          id: "rule", label: "规则引擎",
-          fields: [
-            { key: "rule_direct_wakeup_words", label: "强唤醒词（逗号分隔）", type: "list", full: true, hint: "命中即高权重直出" },
-            { key: "rule_context_wakeup_words", label: "弱语境唤醒词（逗号分隔）", type: "list", full: true, hint: "命中且达阈值才触发" },
-            { key: "rule_context_threshold", label: "语境唤醒阈值", type: "int", min: 0, max: 150, hint: "0~150" },
-            { key: "rule_question_enabled", label: "启用疑问唤醒", type: "bool" },
-            { key: "rule_question_threshold", label: "疑问信号阈值", type: "int", min: 0, max: 100, hint: "0~100" },
-            { key: "rule_score_normalize", label: "归一化除数", type: "float", min: 1, max: 1000, step: 0.1, hint: "score_a = raw / 此值" },
-          ]
-        },
-        {
-          id: "fatigue", label: "疲劳度",
-          fields: [
-            { key: "fatigue_recovery_rate", label: "恢复速率（/分钟）", type: "float", min: 0, max: 10, step: 0.01, hint: "λ = rate/60" },
-            { key: "fatigue_limit", label: "疲劳上限", type: "float", min: 0, max: 100, step: 0.1 },
-            { key: "fatigue_cost_active", label: "消耗·主动回复", type: "float", min: 0, max: 10, step: 0.1 },
-            { key: "fatigue_cost_passive", label: "消耗·被动接话", type: "float", min: 0, max: 10, step: 0.1 },
-            { key: "fatigue_cost_track", label: "消耗·个人跟踪", type: "float", min: 0, max: 10, step: 0.1 },
-            { key: "fatigue_cost_glance", label: "消耗·瞥一眼", type: "float", min: 0, max: 10, step: 0.1 },
-            { key: "fatigue_high_modifier", label: "高疲劳阈值倍率 A", type: "float", min: 0, max: 3, step: 0.01 },
-            { key: "fatigue_medium_modifier", label: "中疲劳阈值倍率", type: "float", min: 0, max: 3, step: 0.01 },
-            { key: "fatigue_suppress_enabled", label: "高疲劳抑制非强制", type: "bool" },
-          ]
-        },
-        {
-          id: "inertia", label: "惯性 / 等待窗口",
-          fields: [
-            { key: "after_reply_probability", label: "回复后概率提升", type: "float", min: 0, max: 1, step: 0.01, hint: "映射为阈值倍率" },
-            { key: "probability_duration", label: "提升持续（秒）", type: "int", min: 0, max: 3600 },
-            { key: "wait_window_duration_ms", label: "等待窗口时长（毫秒）", type: "int", min: 0, max: 60000, hint: "0=禁用" },
-            { key: "wait_window_max_extra", label: "窗口最大收集条数", type: "int", min: 0, max: 100 },
-            { key: "proactive_temp_boost", label: "主动话题额外提升", type: "float", min: 0, max: 1, step: 0.01 },
-            { key: "proactive_boost_duration", label: "主动话题持续（秒）", type: "int", min: 0, max: 3600 },
+            { key: "enable", label: "插件总开关", type: "bool", hint: "插件总开关" },
+            { key: "dry_run", label: "DRY_RUN 干运行", type: "bool", hint: "开启后决策流程全部正常执行，但不生成、不发送消息" },
+            { key: "embedding_provider_id", label: "Embedding 提供商 ID", type: "string", hint: "留空 = 用第一个可用的 Embedding Provider" },
+            { key: "persona_text", label: "人设描述", type: "text", full: true, hint: "人设自然语言描述（启动时据此生成兴趣分级，文本哈希变化会触发重建）" },
+            { key: "persona_knowledge", label: "补充知识", type: "text", full: true, hint: "补充知识文档（可选，作为兴趣生成的额外上下文）" },
+            { key: "group_mode", label: "群启用模式", type: "select", options: [{ value: "whitelist", label: "白名单模式" }, { value: "all", label: "全部群" }], hint: "whitelist 仅白名单内群启用；all 全部群启用" },
+            { key: "group_whitelist", label: "群白名单", type: "list", full: true, hint: "群 ID 白名单（group_mode=whitelist 时生效）。每行一个群 ID" },
+            { key: "replay_speed", label: "回放默认倍速", type: "float", min: 0.1, max: 100, step: 0.1, hint: "/prosocial replay 未指定倍速时使用" },
           ]
         },
         {
           id: "threshold", label: "阈值与权重",
           fields: [
-            { key: "base_threshold", label: "基础阈值", type: "float", min: 0, max: 2, step: 0.01, hint: "0~2" },
-            { key: "personal_threshold", label: "个人跟踪阈值", type: "float", min: 0, max: 2, step: 0.01, hint: "0~2" },
-            { key: "hate_similarity_threshold", label: "反感屏蔽阈值", type: "float", min: 0, max: 1, step: 0.01, hint: "0~1" },
-            { key: "w_int", label: "权重 w_int", type: "float", min: 0, max: 5, step: 0.01 },
-            { key: "w_topic", label: "权重 w_topic", type: "float", min: 0, max: 5, step: 0.01 },
-            { key: "w_resp", label: "权重 w_resp", type: "float", min: 0, max: 5, step: 0.01 },
-            { key: "w_cooldown", label: "权重 w_cooldown", type: "float", min: 0, max: 5, step: 0.01 },
-            { key: "w_silence", label: "权重 w_silence", type: "float", min: 0, max: 5, step: 0.01 },
-            { key: "core_interest_modifier", label: "core 倍率", type: "float", min: 0, max: 3, step: 0.01 },
-            { key: "general_interest_modifier", label: "general 倍率", type: "float", min: 0, max: 3, step: 0.01 },
-            { key: "edge_interest_modifier", label: "edge 倍率", type: "float", min: 0, max: 3, step: 0.01 },
-            { key: "expecting_modifier", label: "期待状态倍率", type: "float", min: 0, max: 2, step: 0.01 },
+            { key: "base_threshold", label: "基础阈值", type: "float", min: 0, max: 2, step: 0.01, hint: "T = base × 级别修正 × (期待 ? expecting_modifier : 1)；越大越保守" },
+            { key: "core_interest_modifier", label: "core 倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "核心兴趣阈值倍率（core 命中时阈值 × 此值，越低越易触发）" },
+            { key: "general_interest_modifier", label: "general 倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "一般兴趣阈值倍率" },
+            { key: "edge_interest_modifier", label: "edge 倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "边缘兴趣阈值倍率（marginal 命中时阈值 × 此值，越高越难触发）" },
+            { key: "expecting_modifier", label: "期待状态倍率", type: "float", min: 0, max: 2, step: 0.01, hint: "期待回复状态阈值倍率（EXPECTING_REPLY 时阈值 × 此值）" },
+            { key: "personal_threshold", label: "个人跟踪阈值", type: "float", min: 0, max: 2, step: 0.01, hint: "个人跟踪专用阈值 T_personal（低于全局阈值，无 @ 接话用）" },
+            { key: "hate_similarity_threshold", label: "反感屏蔽阈值", type: "float", min: 0, max: 1, step: 0.01, hint: "批次嵌入与反感质心余弦 ≥ 此值则强制抑制" },
+            { key: "w_int", label: "权重 w_int", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：兴趣得分 s_int" },
+            { key: "w_topic", label: "权重 w_topic", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：话题连贯性 s_topic" },
+            { key: "w_resp", label: "权重 w_resp", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：回应期待 s_resp" },
+            { key: "w_cooldown", label: "权重 w_cooldown", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：冷却惩罚 c_cooldown（减项）" },
+            { key: "w_silence", label: "权重 w_silence", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：沉默奖励 p_silence" },
           ]
         },
         {
           id: "batch", label: "批次与冷却",
           fields: [
-            { key: "batch_interval_min", label: "批次间隔下限(秒)", type: "float", min: 0.1, max: 60, step: 0.1 },
-            { key: "batch_interval_max", label: "批次间隔上限(秒)", type: "float", min: 0.1, max: 60, step: 0.1 },
-            { key: "cooldown_messages", label: "冷却消息数", type: "int", min: 0, max: 1000 },
-            { key: "expecting_duration", label: "期待持续(秒)", type: "int", min: 0, max: 3600 },
-            { key: "personal_track_timeout", label: "个人跟踪超时(秒)", type: "int", min: 0, max: 3600 },
-            { key: "track_irrelevant_msgs", label: "跟踪连续不相关上限", type: "int", min: 0, max: 100 },
-            { key: "schedule", label: "作息时段 JSON", type: "json", hint: '[{"start":"09:00","end":"12:00"}]', full: true },
+            { key: "batch_interval_min", label: "批次间隔下限(秒)", type: "float", min: 0.1, max: 60, step: 0.1, hint: "消息速率高时取此值" },
+            { key: "batch_interval_max", label: "批次间隔上限(秒)", type: "float", min: 0.1, max: 60, step: 0.1, hint: "消息速率低时取此值" },
+            { key: "cooldown_messages", label: "冷却消息数", type: "int", min: 0, max: 1000, hint: "发言后多少条消息内处于冷却" },
+            { key: "expecting_duration", label: "期待持续(秒)", type: "int", min: 0, max: 3600, hint: "期待回复状态持续秒数" },
+            { key: "personal_track_timeout", label: "个人跟踪超时(秒)", type: "int", min: 0, max: 3600, hint: "超时未触发则清理跟踪用户" },
+            { key: "track_irrelevant_msgs", label: "跟踪连续不相关上限", type: "int", min: 0, max: 100, hint: "跟踪用户连续不相关消息达此数则移除" },
+            { key: "embedding_rate_limit_per_min", label: "嵌入限流(次/分)", type: "int", min: 1, max: 10000, hint: "令牌桶容量与填充速率同步" },
+            { key: "buffer_max_size", label: "缓冲区上限", type: "int", min: 1, max: 100000, hint: "逻辑消息上限，超出丢弃最旧并告警" },
+            { key: "topic_turn_keywords", label: "紧急转弯词", type: "list", full: true, hint: "命中任一则立即结束当前批次提前决策。每行一个" },
+            { key: "short_window_size", label: "短窗口条数", type: "int", min: 1, max: 200, hint: "短窗口消息条数（主动/被动触发均注入 LLM 上下文）" },
+            { key: "long_window_size", label: "长窗口条数", type: "int", min: 1, max: 200, hint: "长窗口消息条数（仅被动 @ 触发时使用）" },
+            { key: "long_window_top_n", label: "长窗口 Top-N", type: "int", min: 1, max: 200, hint: "被动触发时长窗口相关性取前 N 条" },
+            { key: "long_window_summarize", label: "长窗口用 LLM 摘要", type: "bool", hint: "默认 false：直接取相关原文，更快、零额外 LLM 调用" },
           ]
         },
         {
           id: "poll", label: "调度与轮询",
           fields: [
-            { key: "poll_interval", label: "轮询周期(秒)", type: "int", min: 1, max: 86400 },
-            { key: "poll_jitter", label: "轮询抖动(秒)", type: "int", min: 0, max: 86400 },
-            { key: "monitoring_duration", label: "监听周期(秒)", type: "int", min: 1, max: 86400 },
-            { key: "group_cooldown", label: "群冷却(秒)", type: "int", min: 0, max: 86400 },
-            { key: "hot_group_msg_limit", label: "过热群阈值(条/分)", type: "int", min: 1, max: 10000 },
-            { key: "silent_group_minutes", label: "沉默群阈值(分钟)", type: "int", min: 0, max: 1440 },
+            { key: "schedule", label: "作息时段", type: "schedule", full: true, hint: "活跃时间段（非活跃时段仅被动响应，不主动发言不轮询）" },
+            { key: "schedule_jitter_minutes", label: "时段抖动(分钟)", type: "int", min: 0, max: 1440, hint: "时间段随机偏移 ±分钟" },
+            { key: "poll_interval", label: "轮询周期(秒)", type: "int", min: 1, max: 86400, hint: "每周期选一个群进入主动监听" },
+            { key: "poll_jitter", label: "轮询抖动(秒)", type: "int", min: 0, max: 86400, hint: "轮询周期随机 ±秒" },
+            { key: "monitoring_duration", label: "监听周期(秒)", type: "int", min: 1, max: 86400, hint: "单群监听周期，到期或触发一次回复后退出" },
+            { key: "group_cooldown", label: "群冷却(秒)", type: "int", min: 0, max: 86400, hint: "监听退出后此群进入冷却期" },
           ]
         },
         {
           id: "glance", label: "瞥眼 / DRY",
           fields: [
-            { key: "glance_enable", label: "瞥一眼开关", type: "bool" },
-            { key: "glance_group_count", label: "瞥眼候选群数", type: "int", min: 1, max: 50 },
-            { key: "glance_min_score", label: "瞥眼最低得分", type: "float", min: 0, max: 1, step: 0.01, hint: "0~1" },
-            { key: "dry_run", label: "DRY_RUN", type: "bool" },
+            { key: "glance_enable", label: "瞥一眼开关", type: "bool", hint: "EXPECTING_REPLY 期随机选群快速插话" },
+            { key: "glance_group_count", label: "瞥眼候选群数", type: "int", min: 1, max: 50, hint: "每次瞥眼最多从中选一个插话" },
+            { key: "glance_min_score", label: "瞥眼最低得分", type: "float", min: 0, max: 1, step: 0.01, hint: "兴趣得分 ≥ 此值且冷却允许才插话" },
+            { key: "hot_group_msg_limit", label: "过热群阈值(条/分)", type: "int", min: 1, max: 10000, hint: "1 分钟内超过此消息数视为过热群（瞥眼时排除）" },
+            { key: "silent_group_minutes", label: "沉默群阈值(分钟)", type: "int", min: 0, max: 1440, hint: "最近 N 分钟无消息视为沉默群（瞥眼时排除）" },
           ]
         },
+        {
+          id: "fusion", label: "双通道与融合",
+          fields: [
+            { key: "enable_rule_channel", label: "启用规则通道 A", type: "bool", hint: "关闭后仅向量通道决策" },
+            { key: "enable_vector_channel", label: "启用向量通道 B", type: "bool", hint: "关闭后仅规则通道决策" },
+            { key: "fusion_weight_rule", label: "融合权重 α（A 占比）", type: "float", min: 0, max: 1, step: 0.01, hint: "final = α·a + (1−α)·b；越大越信任规则通道" },
+            { key: "dynamic_fusion_enabled", label: "动态权重", type: "bool", hint: "强唤醒/@ 时偏向规则、短消息+期待时偏向语义" },
+            { key: "dynamic_alpha_wake", label: "强唤醒/@ 时的 α", type: "float", min: 0, max: 1, step: 0.01, hint: "消息含强唤醒词或 @Bot 时的 α" },
+            { key: "dynamic_alpha_short_expect", label: "短消息+期待时的 α", type: "float", min: 0, max: 1, step: 0.01, hint: "短消息（≤8 字）且处于期待回复时的 α" },
+          ]
+        },
+        {
+          id: "rule", label: "规则引擎",
+          fields: [
+            { key: "rule_direct_wakeup_words", label: "强唤醒词", type: "list", full: true, hint: "命中即高权重直出；Bot 名由框架 @ 检测自动覆盖。每行一个" },
+            { key: "rule_context_wakeup_words", label: "弱语境唤醒词", type: "list", full: true, hint: "命中且隐式分达阈值才触发。每行一个" },
+            { key: "rule_context_threshold", label: "语境唤醒阈值", type: "int", min: 0, max: 150, hint: "0~150，命中语境词且原始分≥此值才触发" },
+            { key: "rule_question_enabled", label: "启用疑问唤醒", type: "bool", hint: "识别公开求助/排障/解释等疑问信号" },
+            { key: "rule_question_threshold", label: "疑问信号阈值", type: "int", min: 0, max: 100, hint: "0~100，疑问分≥此值触发" },
+            { key: "rule_score_normalize", label: "归一化除数", type: "float", min: 1, max: 1000, step: 0.1, hint: "score_a = raw / 此值，clamp 到 [0,1]" },
+          ]
+        },
+        {
+          id: "fatigue", label: "疲劳度",
+          fields: [
+            { key: "fatigue_recovery_rate", label: "恢复速率(/分钟)", type: "float", min: 0, max: 10, step: 0.01, hint: "指数衰减 λ = 此值/60" },
+            { key: "fatigue_limit", label: "疲劳上限", type: "float", min: 0, max: 100, step: 0.1, hint: "value 封顶于此；ratio=value/limit 决定级别" },
+            { key: "fatigue_cost_active", label: "消耗·主动回复", type: "float", min: 0, max: 10, step: 0.1 },
+            { key: "fatigue_cost_passive", label: "消耗·被动接话", type: "float", min: 0, max: 10, step: 0.1 },
+            { key: "fatigue_cost_track", label: "消耗·个人跟踪", type: "float", min: 0, max: 10, step: 0.1 },
+            { key: "fatigue_cost_glance", label: "消耗·瞥一眼", type: "float", min: 0, max: 10, step: 0.1 },
+            { key: "fatigue_high_modifier", label: "高疲劳倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "high 时阈值 × 此值，更难触发" },
+            { key: "fatigue_medium_modifier", label: "中疲劳倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "medium 时阈值 × 此值" },
+            { key: "fatigue_suppress_enabled", label: "高疲劳抑制非强制", type: "bool", hint: "high 且非 core/@/强唤醒时不回复" },
+          ]
+        },
+        {
+          id: "inertia", label: "惯性 / 等待窗口",
+          fields: [
+            { key: "after_reply_probability", label: "回复后概率提升", type: "float", min: 0, max: 1, step: 0.01, hint: "映射为阈值倍率，窗口内更易接话" },
+            { key: "probability_duration", label: "提升持续(秒)", type: "int", min: 0, max: 3600, hint: "回复后概率提升持续秒数" },
+            { key: "wait_window_duration_ms", label: "等待窗口时长(毫秒)", type: "int", min: 0, max: 60000, hint: "回复后收集同用户连续后续消息合并回复；0=禁用" },
+            { key: "wait_window_max_extra", label: "窗口最大收集条数", type: "int", min: 0, max: 100, hint: "等待窗口最大额外收集消息条数" },
+            { key: "proactive_temp_boost", label: "主动话题额外提升", type: "float", min: 0, max: 1, step: 0.01, hint: "主动发起后窗口内叠加" },
+            { key: "proactive_boost_duration", label: "主动话题持续(秒)", type: "int", min: 0, max: 3600, hint: "超时无回应记一次主动失败" },
+          ]
+        },
+      ];
+
+      // ============ 配置向导步骤（F17，7 步）============
+      var WIZARD_STEPS = [
+        { title: "人设与知识", desc: "机器人的人设决定它的兴趣方向与说话风格。", fields: ["persona_text", "persona_knowledge"] },
+        { title: "群范围", desc: "选择在哪些群启用主动社交。", fields: ["group_mode", "group_whitelist"] },
+        { title: "唤醒阈值", desc: "阈值越高越保守，建议 0.65 起步。", fields: ["base_threshold", "core_interest_modifier", "edge_interest_modifier"] },
+        { title: "作息调度", desc: "设定机器人活跃时段与轮询节奏。", fields: ["schedule", "poll_interval", "monitoring_duration"] },
+        { title: "双通道融合", desc: "规则通道抓唤醒词，向量通道抓语义。", fields: ["enable_rule_channel", "enable_vector_channel", "fusion_weight_rule"] },
+        { title: "疲劳与惯性", desc: "防止刷屏，回复后自然接话。", fields: ["fatigue_limit", "after_reply_probability", "wait_window_duration_ms"] },
+        { title: "完成", desc: "汇总本次改动，一键保存生效。", fields: [] }
       ];
 
       // ============ 工具函数 ============
@@ -812,7 +984,7 @@
         document.getElementById("dryLabel").textContent = on ? "开启（不发送消息）" : "关闭（正常发送）";
       }
 
-      // ============ 配置面板 ============
+      // ============ 配置面板（F15.5）+ 字段共享渲染器 ============
       function buildConfigTabs() {
         var tabs = document.getElementById("cfgTabs");
         tabs.innerHTML = CONFIG_GROUPS.map(function (grp) {
@@ -827,49 +999,6 @@
           fillConfigForm(loadedConfig);
         });
       }
-      function buildConfigForm() {
-        var form = document.getElementById("cfgForm");
-        var html = "";
-        CONFIG_GROUPS.forEach(function (grp) {
-          var active = grp.id === currentCfgTab ? " active" : "";
-          html += '<div class="cfg-group' + active + '" data-group="' + grp.id + '">';
-          html += '<div class="cfg-grid">';
-          grp.fields.forEach(function (f) {
-            var cls = "cfg-field" + (f.full ? " full" : "") + (f.type === "bool" ? " bool-field" : "");
-            html += '<div class="' + cls + '">';
-            if (f.type === "bool") {
-              html += '<label class="switch"><input type="checkbox" id="cfg_' + f.key + '" /><span class="slider"></span></label>'
-                + '<label for="cfg_' + f.key + '">' + escapeHtml(f.label) + '</label>';
-            } else if (f.type === "json") {
-              html += '<label>' + escapeHtml(f.label) + '</label>'
-                + '<textarea id="cfg_' + f.key + '" placeholder="' + escapeHtml(f.hint || "") + '"></textarea>'
-                + (f.hint ? '<span class="hint">' + escapeHtml(f.hint) + '</span>' : '');
-            } else if (f.type === "list") {
-              html += '<label>' + escapeHtml(f.label) + '</label>'
-                + '<input type="text" id="cfg_' + f.key + '" placeholder="逗号分隔，留空为 []" />'
-                + (f.hint ? '<span class="hint">' + escapeHtml(f.hint) + '</span>' : '');
-            } else {
-              html += '<label>' + escapeHtml(f.label) + '</label>'
-                + '<input type="' + (f.type === "int" ? "number" : "text") + '" id="cfg_' + f.key + '"'
-                + (f.step != null ? ' step="' + f.step + '"' : "")
-                + (f.min != null ? ' min="' + f.min + '"' : "")
-                + (f.max != null ? ' max="' + f.max + '"' : "") + ' />'
-                + (f.hint ? '<span class="hint">' + escapeHtml(f.hint) + '</span>' : '');
-            }
-            html += '</div>';
-          });
-          html += '</div></div>';
-        });
-        form.innerHTML = html;
-        // 监听脏字段
-        form.addEventListener("input", markDirty);
-        form.addEventListener("change", markDirty);
-      }
-      function markDirty(e) {
-        var el = e.target;
-        if (!el || !el.id || el.id.indexOf("cfg_") !== 0) return;
-        el.classList.add("dirty");
-      }
       function findField(key) {
         for (var i = 0; i < CONFIG_GROUPS.length; i++) {
           for (var j = 0; j < CONFIG_GROUPS[i].fields.length; j++) {
@@ -878,27 +1007,167 @@
         }
         return null;
       }
+      // 单字段骨架 HTML（配置面板与向导共用，idPrefix 区分 "cfg" / "wiz"）
+      function fieldHtml(f, idPrefix) {
+        var id = idPrefix + "_" + f.key;
+        var hint = f.hint ? '<span class="hint">' + escapeHtml(f.hint) + '</span>' : '';
+        var cls = "cfg-field" + (f.full ? " full" : "") + (f.type === "bool" ? " bool-field" : "");
+        var html = '<div class="' + cls + '">';
+        if (f.type === "bool") {
+          html += '<label class="switch"><input type="checkbox" id="' + id + '" /><span class="slider"></span></label>'
+            + '<label for="' + id + '">' + escapeHtml(f.label) + '</label>' + hint;
+        } else if (f.type === "text") {
+          html += '<label>' + escapeHtml(f.label) + '</label>'
+            + '<textarea id="' + id + '" class="list-input"></textarea>' + hint;
+        } else if (f.type === "select") {
+          html += '<label>' + escapeHtml(f.label) + '</label><select id="' + id + '">';
+          f.options.forEach(function (o) { html += '<option value="' + o.value + '">' + escapeHtml(o.label) + '</option>'; });
+          html += '</select>' + hint;
+        } else if (f.type === "list") {
+          html += '<label>' + escapeHtml(f.label) + '</label>'
+            + '<textarea id="' + id + '" class="list-input" placeholder="每行一个元素，留空为 []"></textarea>' + hint;
+        } else if (f.type === "schedule") {
+          html += '<label>' + escapeHtml(f.label) + '</label><div class="sched-editor" id="' + id + '"></div>' + hint;
+        } else if (f.type === "int" || f.type === "float") {
+          var step = f.type === "int" ? (f.step != null ? f.step : 1) : (f.step != null ? f.step : "any");
+          html += '<label>' + escapeHtml(f.label) + '</label>'
+            + '<input type="number" id="' + id + '" step="' + step + '"'
+            + (f.min != null ? ' min="' + f.min + '"' : "")
+            + (f.max != null ? ' max="' + f.max + '"' : "") + ' />' + hint;
+        } else { // string
+          html += '<label>' + escapeHtml(f.label) + '</label>'
+            + '<input type="text" id="' + id + '" />' + hint;
+        }
+        html += '</div>';
+        return html;
+      }
+      // schedule 时段编辑器：渲染所有行（含 + 添加按钮）
+      function renderScheduleRows(container, value) {
+        var arr = Array.isArray(value) ? value : [];
+        var html = "";
+        arr.forEach(function (item) {
+          var s = (item && item.start) || "09:00";
+          var e = (item && item.end) || "12:00";
+          html += '<div class="sched-row">'
+            + '<input type="time" value="' + escapeHtml(s) + '" data-field="start" />'
+            + '<span class="sep">→</span>'
+            + '<input type="time" value="' + escapeHtml(e) + '" data-field="end" />'
+            + '<button type="button" class="del" title="删除该时段">×</button>'
+            + '</div>';
+        });
+        html += '<button type="button" class="sched-add">+ 添加时段</button>';
+        container.innerHTML = html;
+      }
+      // 读取 schedule 编辑器当前行
+      function collectScheduleRows(container) {
+        var rows = container.querySelectorAll(".sched-row");
+        var out = [];
+        for (var i = 0; i < rows.length; i++) {
+          var s = rows[i].querySelector('[data-field="start"]');
+          var e = rows[i].querySelector('[data-field="end"]');
+          out.push({ start: s ? s.value : "00:00", end: e ? e.value : "00:00" });
+        }
+        return out;
+      }
+      // 绑定 schedule 容器的增删按钮（容器级事件委托，仅绑定一次）
+      function ensureSchedBound(container) {
+        if (container._schedBound) return;
+        container._schedBound = true;
+        container.addEventListener("click", function (e) {
+          var addBtn = e.target.closest ? e.target.closest(".sched-add") : null;
+          var delBtn = e.target.closest ? e.target.closest(".del") : null;
+          if (addBtn) {
+            var cur = collectScheduleRows(container);
+            cur.push({ start: "09:00", end: "12:00" });
+            renderScheduleRows(container, cur);
+            container.classList.add("dirty");
+          } else if (delBtn) {
+            var row = delBtn.closest ? delBtn.closest(".sched-row") : null;
+            var cur2 = collectScheduleRows(container);
+            if (row) {
+              var all = container.querySelectorAll(".sched-row");
+              var idx = Array.prototype.indexOf.call(all, row);
+              if (idx >= 0) cur2.splice(idx, 1);
+            }
+            renderScheduleRows(container, cur2);
+            container.classList.add("dirty");
+          }
+        });
+      }
+      // 填充单字段值（DOM 已存在后调用）
+      function fillField(f, value, idPrefix) {
+        var el = document.getElementById(idPrefix + "_" + f.key);
+        if (!el) return;
+        if (f.type === "bool") {
+          el.checked = value === true;
+        } else if (f.type === "select") {
+          el.value = value || (f.options[0] && f.options[0].value) || "";
+        } else if (f.type === "list") {
+          el.value = Array.isArray(value) ? value.join("\n") : (value == null ? "" : String(value));
+        } else if (f.type === "schedule") {
+          renderScheduleRows(el, value);
+          ensureSchedBound(el);
+        } else {
+          el.value = (value == null) ? "" : String(value);
+        }
+        el.classList.remove("dirty");
+      }
+      // 读取单字段值（解析失败抛错）
+      function collectField(f, idPrefix) {
+        var el = document.getElementById(idPrefix + "_" + f.key);
+        if (!el) return null;
+        if (f.type === "bool") return el.checked;
+        if (f.type === "select") return el.value;
+        if (f.type === "list") {
+          var txt = el.value;
+          if (!txt.trim()) return [];
+          return txt.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
+        }
+        if (f.type === "schedule") return collectScheduleRows(el);
+        if (f.type === "int") {
+          var iv = parseInt(el.value, 10);
+          if (isNaN(iv)) throw new Error(f.label + " 需为整数");
+          return iv;
+        }
+        if (f.type === "float") {
+          var fv = parseFloat(el.value);
+          if (isNaN(fv)) throw new Error(f.label + " 需为数字");
+          return fv;
+        }
+        return el.value;
+      }
+      function buildConfigForm() {
+        var form = document.getElementById("cfgForm");
+        var html = "";
+        CONFIG_GROUPS.forEach(function (grp) {
+          var active = grp.id === currentCfgTab ? " active" : "";
+          html += '<div class="cfg-group' + active + '" data-group="' + grp.id + '">';
+          html += '<div class="cfg-grid">';
+          grp.fields.forEach(function (f) { html += fieldHtml(f, "cfg"); });
+          html += '</div></div>';
+        });
+        form.innerHTML = html;
+        form.addEventListener("input", markDirty);
+        form.addEventListener("change", markDirty);
+      }
+      function markDirty(e) {
+        var el = e.target;
+        if (!el) return;
+        // 直接配置字段（id 以 cfg_ 开头）
+        if (el.id && el.id.indexOf("cfg_") === 0) { el.classList.add("dirty"); return; }
+        // schedule 编辑器内部 input：标记其容器为脏
+        var box = el.closest ? el.closest(".sched-editor") : null;
+        if (box && box.id) { box.classList.add("dirty"); }
+      }
       function fillConfigForm(cfg) {
         loadedConfig = cfg || {};
         CONFIG_GROUPS.forEach(function (grp) {
-          grp.fields.forEach(function (f) {
-            var el = document.getElementById("cfg_" + f.key);
-            if (!el) return;
-            var v = loadedConfig[f.key];
-            if (f.type === "bool") {
-              el.checked = v === true;
-            } else if (f.type === "json") {
-              el.value = (v == null) ? "" : (typeof v === "string" ? v : JSON.stringify(v, null, 2));
-            } else if (f.type === "list") {
-              // list[string]：逗号分隔展示
-              if (Array.isArray(v)) el.value = v.join(", ");
-              else el.value = (v == null) ? "" : String(v);
-            } else {
-              el.value = (v == null) ? "" : String(v);
-            }
-            el.classList.remove("dirty");
-          });
+          grp.fields.forEach(function (f) { fillField(f, loadedConfig[f.key], "cfg"); });
         });
+      }
+      function clearDirty() {
+        var els = document.querySelectorAll("#cfgForm .dirty");
+        for (var i = 0; i < els.length; i++) els[i].classList.remove("dirty");
       }
       function collectDirty() {
         var patch = {};
@@ -907,33 +1176,155 @@
           grp.fields.forEach(function (f) {
             var el = document.getElementById("cfg_" + f.key);
             if (!el || !el.classList.contains("dirty")) return;
-            if (f.type === "bool") {
-              patch[f.key] = el.checked;
-            } else if (f.type === "json") {
-              var txt = el.value.trim();
-              if (!txt) return;
-              try { patch[f.key] = JSON.parse(txt); }
-              catch (e) { throw new Error(f.label + " JSON 解析失败: " + e.message); }
-            } else if (f.type === "list") {
-              var txt2 = el.value.trim();
-              if (!txt2) {
-                patch[f.key] = [];
-              } else {
-                patch[f.key] = txt2.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
-              }
-            } else if (f.type === "int") {
-              var iv = parseInt(el.value, 10);
-              if (isNaN(iv)) throw new Error(f.label + " 需为整数");
-              patch[f.key] = iv;
-            } else { // float
-              var fv = parseFloat(el.value);
-              if (isNaN(fv)) throw new Error(f.label + " 需为数字");
-              patch[f.key] = fv;
-            }
+            patch[f.key] = collectField(f, "cfg"); // 解析失败抛错，由调用方捕获
             hasDirty = true;
           });
         });
         return hasDirty ? patch : null;
+      }
+      // 向导保存后同步配置面板（不覆盖用户正在编辑的脏字段）
+      function syncConfigFormFromLoaded() {
+        CONFIG_GROUPS.forEach(function (grp) {
+          grp.fields.forEach(function (f) {
+            var el = document.getElementById("cfg_" + f.key);
+            if (!el || el.classList.contains("dirty")) return;
+            if (loadedConfig[f.key] === undefined) return;
+            fillField(f, loadedConfig[f.key], "cfg");
+          });
+        });
+      }
+
+      // ============ Toast 提示 ============
+      function toast(msg, kind) {
+        var t = document.getElementById("toast");
+        t.textContent = msg;
+        t.className = "toast show" + (kind ? " " + kind : "");
+        clearTimeout(t._timer);
+        t._timer = setTimeout(function () { t.className = "toast"; }, 2600);
+      }
+
+      // ============ 配置向导（F17，7 步）============
+      var wizardStep = 0;          // 当前步骤索引 0..6
+      var wizardPatch = {};        // 临时改动累积（步骤间合并）
+      var wizardAutoOpened = false; // 本次会话是否已自动弹过向导
+
+      function openWizard() {
+        wizardStep = 0;
+        wizardPatch = {};
+        document.getElementById("wizardOverlay").classList.add("show");
+        renderWizardStep();
+      }
+      function closeWizard() { document.getElementById("wizardOverlay").classList.remove("show"); }
+
+      // 深比较（用于判定与默认值是否不同，支持数组/对象）
+      function deepEqual(a, b) {
+        if (a === b) return true;
+        if (a == null || b == null) return a === b;
+        if (typeof a !== "object" || typeof b !== "object") return a === b;
+        var ka = Object.keys(a), kb = Object.keys(b);
+        if (ka.length !== kb.length) return false;
+        for (var i = 0; i < ka.length; i++) {
+          var k = ka[i];
+          if (!(k in b)) return false;
+          if (!deepEqual(a[k], b[k])) return false;
+        }
+        return true;
+      }
+      function formatVal(v) {
+        if (v == null) return "—";
+        if (typeof v === "object") return JSON.stringify(v);
+        return String(v);
+      }
+
+      // 收集当前步骤字段值到 wizardPatch
+      function collectWizardStep() {
+        var step = WIZARD_STEPS[wizardStep];
+        if (!step || !step.fields.length) return;
+        step.fields.forEach(function (key) {
+          var f = findField(key);
+          if (!f) return;
+          try { wizardPatch[key] = collectField(f, "wiz"); }
+          catch (e) { /* 解析失败保留上次值，不阻断导航 */ }
+        });
+      }
+
+      function renderWizardStep() {
+        var total = WIZARD_STEPS.length;
+        var step = WIZARD_STEPS[wizardStep];
+        document.getElementById("wizTitle").textContent = "配置向导 · " + (wizardStep + 1) + ". " + step.title;
+        document.getElementById("wizDesc").textContent = step.desc;
+        document.getElementById("wizStepLabel").textContent = (wizardStep + 1) + "/" + total;
+        document.getElementById("wizProgressBar").style.width = ((wizardStep + 1) / total * 100) + "%";
+        var body = document.getElementById("wizBody");
+        var isLast = wizardStep === total - 1;
+        if (isLast) {
+          // 完成步：汇总与默认值不同的项
+          var html = '<div class="wizard-summary"><div class="sum-title">本次将保存以下改动（与默认值不同的项）</div>';
+          var changes = [];
+          Object.keys(wizardPatch).forEach(function (k) {
+            if (!deepEqual(wizardPatch[k], DEFAULT_CONFIG[k])) changes.push(k);
+          });
+          if (!changes.length) {
+            html += '<div class="empty">无改动（全部保持默认值）</div>';
+          } else {
+            changes.forEach(function (k) {
+              html += '<div class="row"><span class="k">' + escapeHtml(k) + '</span><span class="v">' + escapeHtml(formatVal(wizardPatch[k])) + '</span></div>';
+            });
+          }
+          html += '</div>';
+          body.innerHTML = html;
+          document.getElementById("wizNext").textContent = "一键保存";
+          document.getElementById("wizPrev").disabled = false;
+          return;
+        }
+        // 普通步：渲染字段
+        var fhtml = '<div class="cfg-grid">';
+        step.fields.forEach(function (key) {
+          var f = findField(key);
+          if (f) fhtml += fieldHtml(f, "wiz");
+        });
+        fhtml += '</div>';
+        body.innerHTML = fhtml;
+        // 填值：向导已改优先，否则用当前配置
+        step.fields.forEach(function (key) {
+          var f = findField(key);
+          if (!f) return;
+          var v = (key in wizardPatch) ? wizardPatch[key] : loadedConfig[key];
+          fillField(f, v, "wiz");
+        });
+        document.getElementById("wizNext").textContent = "下一步";
+        document.getElementById("wizPrev").disabled = (wizardStep === 0);
+      }
+
+      function wizNext() {
+        var total = WIZARD_STEPS.length;
+        if (wizardStep === total - 1) { saveWizard(); return; } // 最后一步：保存
+        collectWizardStep();
+        wizardStep++;
+        renderWizardStep();
+      }
+      function wizPrev() {
+        if (wizardStep === 0) return;
+        collectWizardStep();   // 回退也保存当前编辑，避免丢失
+        wizardStep--;
+        renderWizardStep();
+      }
+      function saveWizard() {
+        // 仅提交与默认值不同的项
+        var patch = {};
+        Object.keys(wizardPatch).forEach(function (k) {
+          if (!deepEqual(wizardPatch[k], DEFAULT_CONFIG[k])) patch[k] = wizardPatch[k];
+        });
+        if (!Object.keys(patch).length) { toast("无改动可保存（全部为默认值）", "err"); closeWizard(); return; }
+        callApi(bridge.apiPost("prosocial/config", patch)).then(function (d) {
+          Object.keys(patch).forEach(function (k) { loadedConfig[k] = patch[k]; }); // 更新基线
+          syncConfigFormFromLoaded(); // 同步配置面板（非脏字段）
+          var n = (d && typeof d.updated === "number") ? d.updated : Object.keys(patch).length;
+          toast("已保存 " + n + " 项", "ok");
+          closeWizard();
+        }).catch(function (e) {
+          toast("保存失败: " + e.message, "err");
+        });
       }
 
       // ============ 群管理 ============
@@ -996,6 +1387,11 @@
           buildConfigForm();
           fillConfigForm(d);
           document.getElementById("cfgMsg").textContent = "";
+          // 首启自动弹配置向导：persona_text 仍为默认值且本次会话未弹过
+          if (!wizardAutoOpened && d && d.persona_text === DEFAULT_CONFIG.persona_text) {
+            wizardAutoOpened = true;
+            openWizard();
+          }
         }).catch(function (e) { showErr("配置加载失败: " + e.message); });
       }
       function loadGroups() {
@@ -1017,6 +1413,21 @@
           document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
         });
 
+        // 配置向导按钮
+        document.getElementById("wizardBtn").addEventListener("click", openWizard);
+        document.getElementById("wizNext").addEventListener("click", wizNext);
+        document.getElementById("wizPrev").addEventListener("click", wizPrev);
+        document.getElementById("wizExit").addEventListener("click", function () {
+          if (Object.keys(wizardPatch).length && !confirm("有未保存的改动，确定退出向导？")) return;
+          closeWizard();
+        });
+        // 点遮罩空白处关闭（同样提示未保存）
+        document.getElementById("wizardOverlay").addEventListener("click", function (e) {
+          if (e.target !== this) return;
+          if (Object.keys(wizardPatch).length && !confirm("有未保存的改动，确定退出向导？")) return;
+          closeWizard();
+        });
+
         // DRY_RUN toggle
         document.getElementById("dryToggle").addEventListener("change", function () {
           var on = this.checked;
@@ -1030,21 +1441,25 @@
           }).finally(function () { document.getElementById("dryToggle").disabled = false; });
         });
 
-        // 配置保存
+        // 配置保存：POST 响应仅 {updated:N}，不回填表单；保留当前编辑值 + toast 提示
         document.getElementById("cfgSave").addEventListener("click", function () {
           var msg = document.getElementById("cfgMsg");
           var patch;
           try { patch = collectDirty(); }
-          catch (e) { msg.textContent = "错误: " + e.message; msg.style.color = "var(--err)"; return; }
+          catch (e) { msg.textContent = "错误: " + e.message; msg.style.color = "var(--err)"; toast(e.message, "err"); return; }
           if (!patch) { msg.textContent = "无修改"; msg.style.color = "var(--muted)"; return; }
           this.disabled = true;
           msg.textContent = "保存中…"; msg.style.color = "var(--muted)";
           var self = this;
           callApi(bridge.apiPost("prosocial/config", patch)).then(function (d) {
-            fillConfigForm(d || {});
-            msg.textContent = "已保存"; msg.style.color = "var(--ok)";
+            clearDirty();                              // 清除 dirty 标记，保留当前编辑值
+            Object.keys(patch).forEach(function (k) { loadedConfig[k] = patch[k]; }); // 更新脏字段判定基线
+            var n = (d && typeof d.updated === "number") ? d.updated : Object.keys(patch).length;
+            msg.textContent = "已保存 " + n + " 项"; msg.style.color = "var(--ok)";
+            toast("已保存 " + n + " 项", "ok");
           }).catch(function (e) {
             msg.textContent = "保存失败: " + e.message; msg.style.color = "var(--err)";
+            toast("保存失败: " + e.message, "err");
           }).finally(function () { self.disabled = false; });
         });
         document.getElementById("cfgReload").addEventListener("click", loadConfig);

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.1] - 2026-07-23
+
+### Changed
+- **配置存储迁移**：全部 ~48 项普通配置从 `_conf_schema.json`/AstrBotConfig 迁移到 AstrBot KV 存储 + Web Dashboard（ConfigStore 模块，内存缓存 + 热更新）
+- `_conf_schema.json` 瘦身：仅保留 `chat_provider_id`（select_provider 原生下拉），主插件面板不再堆叠普通参数
+- `config_getter` 合并两源：ConfigStore 缓存（普通参数）+ AstrBotConfig（特殊选择器），对 scheduler 透明
+- 新增 `on_astrbot_loaded` 钩子：启动时从 KV 加载配置覆盖项
+
+### Added
+- **ConfigStore 模块**（`core/config_store.py`）：DEFAULT_CONFIG（71 项默认值）+ VALIDATORS + 事务性 set_many + KV 持久化
+- **Dashboard 配置面板补全**：全部 71 项普通参数分 9 组 tab，含 schedule 时段增删编辑器、list 控件
+- **配置引导向导**（F17）：7 步分步流程（人设→群范围→阈值→作息→双通道→疲劳惯性→完成），首启自动弹出，带说明与进度条
+- 18 项 v0.2.1 单元测试（ConfigStore 校验/事务性/load 合并/热更新/合并逻辑）
+
+### Fixed
+- Dashboard 配置保存后不再用 POST 响应回填表单（响应改为 `{updated:N}`）
+
 ## [0.2.0] - 2026-07-23
 
 ### Added

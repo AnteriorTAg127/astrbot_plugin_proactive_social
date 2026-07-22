@@ -12,8 +12,10 @@
 6. ``terminate()``：``scheduler.stop()``（cancel+await 所有任务，持久化）。
 
 设计要点：
-- ``AstrBotConfig`` 是 live dict 引用，``config_getter`` 直接返回 ``self.config``，
-  Dashboard 写入后即时生效（决策引擎每次决策实时读取）。
+- ``ConfigStore``（v0.2.1）：普通参数由 ConfigStore 管理（默认值 + KV 持久化覆盖 +
+  内存缓存），``_config_getter`` 合并 ConfigStore 缓存与 ``AstrBotConfig`` 特殊选择器
+  （``chat_provider_id``），scheduler 每次决策实时读取（热更新：set_many 改缓存后立即生效）。
+- ``on_astrbot_loaded`` 钩子：从 KV 加载配置覆盖项到 ConfigStore 缓存。
 - 嵌入 provider 解析：``embedding_provider_id`` 为空时用 ``get_all_embedding_providers()[0]``。
 - LLM provider 解析：``chat_provider_id`` 为空时用 ``get_using_provider(None)`` 取全局默认，
   再退到 ``get_all_providers()[0]``（主动发言无 umo 上下文，不能用 ``get_current_chat_provider_id``）。
@@ -43,6 +45,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 # 注意：必须用相对导入（from .core.xxx）。AstrBot 把本插件作为
 # data.plugins.astrbot_plugin_proactive_social.main 子包加载，插件目录不在 sys.path 顶层，
 # 绝对导入 `from core.xxx` 会触发 ModuleNotFoundError: No module named 'core'。
+from .core.config_store import ConfigStore
 from .core.interest import InterestManager
 from .core.prompts import build_summary_prompt
 from .core.ratelimit import TokenBucketRateLimiter
@@ -55,132 +58,8 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 # 不支持主动发送的平台（PRD §6.2）—— send_fn 检测到这些平台时跳过
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
-# Web API 可编辑配置键白名单（PRD F7），其他键不允许经 Web 修改
-_CONFIG_EDITABLE_KEYS: frozenset[str] = frozenset(
-    {
-        "dry_run",
-        "base_threshold",
-        "personal_threshold",
-        "hate_similarity_threshold",
-        "w_int",
-        "w_topic",
-        "w_resp",
-        "w_cooldown",
-        "w_silence",
-        "core_interest_modifier",
-        "general_interest_modifier",
-        "edge_interest_modifier",
-        "expecting_modifier",
-        "batch_interval_min",
-        "batch_interval_max",
-        "cooldown_messages",
-        "expecting_duration",
-        "personal_track_timeout",
-        "track_irrelevant_msgs",
-        "schedule",
-        "poll_interval",
-        "poll_jitter",
-        "monitoring_duration",
-        "group_cooldown",
-        "glance_enable",
-        "glance_group_count",
-        "glance_min_score",
-        "hot_group_msg_limit",
-        "silent_group_minutes",
-        # v0.2 双通道融合 / 疲劳 / 惯性 / 等待窗口（§5）
-        "enable_rule_channel",
-        "enable_vector_channel",
-        "fusion_weight_rule",
-        "dynamic_fusion_enabled",
-        "dynamic_alpha_wake",
-        "dynamic_alpha_short_expect",
-        "rule_direct_wakeup_words",
-        "rule_context_wakeup_words",
-        "rule_context_threshold",
-        "rule_question_enabled",
-        "rule_question_threshold",
-        "rule_score_normalize",
-        "fatigue_recovery_rate",
-        "fatigue_limit",
-        "fatigue_cost_active",
-        "fatigue_cost_passive",
-        "fatigue_cost_track",
-        "fatigue_cost_glance",
-        "fatigue_high_modifier",
-        "fatigue_medium_modifier",
-        "fatigue_suppress_enabled",
-        "after_reply_probability",
-        "probability_duration",
-        "wait_window_duration_ms",
-        "wait_window_max_extra",
-        "proactive_temp_boost",
-        "proactive_boost_duration",
-    }
-)
 
-# 配置项类型/范围校验规则（key -> (type, min, max)）；min/max 为 None 表示不校验
-# schedule 单独按 list 校验，不在此表中
-_CONFIG_VALIDATORS: dict[str, tuple[type, float | None, float | None]] = {
-    "dry_run": (bool, None, None),
-    "base_threshold": (float, 0.0, 2.0),
-    "personal_threshold": (float, 0.0, 2.0),
-    "hate_similarity_threshold": (float, 0.0, 1.0),
-    "w_int": (float, 0.0, 5.0),
-    "w_topic": (float, 0.0, 5.0),
-    "w_resp": (float, 0.0, 5.0),
-    "w_cooldown": (float, 0.0, 5.0),
-    "w_silence": (float, 0.0, 5.0),
-    "core_interest_modifier": (float, 0.0, 3.0),
-    "general_interest_modifier": (float, 0.0, 3.0),
-    "edge_interest_modifier": (float, 0.0, 3.0),
-    "expecting_modifier": (float, 0.0, 2.0),
-    "batch_interval_min": (float, 0.1, 60.0),
-    "batch_interval_max": (float, 0.1, 60.0),
-    "cooldown_messages": (int, 0, 1000),
-    "expecting_duration": (int, 0, 3600),
-    "personal_track_timeout": (int, 0, 3600),
-    "track_irrelevant_msgs": (int, 0, 100),
-    "poll_interval": (int, 1, 86400),
-    "poll_jitter": (int, 0, 86400),
-    "monitoring_duration": (int, 1, 86400),
-    "group_cooldown": (int, 0, 86400),
-    "glance_enable": (bool, None, None),
-    "glance_group_count": (int, 1, 50),
-    "glance_min_score": (float, 0.0, 1.0),
-    "hot_group_msg_limit": (int, 1, 10000),
-    "silent_group_minutes": (int, 0, 1440),
-    # v0.2 双通道融合 / 疲劳 / 惯性 / 等待窗口校验
-    # 注意：rule_direct_wakeup_words / rule_context_wakeup_words 为 list 类型，
-    # 不加入此表，在 set_config_view 中按 list 特判（同 schedule）。
-    "enable_rule_channel": (bool, None, None),
-    "enable_vector_channel": (bool, None, None),
-    "fusion_weight_rule": (float, 0.0, 1.0),
-    "dynamic_fusion_enabled": (bool, None, None),
-    "dynamic_alpha_wake": (float, 0.0, 1.0),
-    "dynamic_alpha_short_expect": (float, 0.0, 1.0),
-    "rule_context_threshold": (int, 0, 150),
-    "rule_question_enabled": (bool, None, None),
-    "rule_question_threshold": (int, 0, 100),
-    "rule_score_normalize": (float, 1.0, 1000.0),
-    "fatigue_recovery_rate": (float, 0.0, 10.0),
-    "fatigue_limit": (float, 0.0, 100.0),
-    "fatigue_cost_active": (float, 0.0, 10.0),
-    "fatigue_cost_passive": (float, 0.0, 10.0),
-    "fatigue_cost_track": (float, 0.0, 10.0),
-    "fatigue_cost_glance": (float, 0.0, 10.0),
-    "fatigue_high_modifier": (float, 0.0, 3.0),
-    "fatigue_medium_modifier": (float, 0.0, 3.0),
-    "fatigue_suppress_enabled": (bool, None, None),
-    "after_reply_probability": (float, 0.0, 1.0),
-    "probability_duration": (int, 0, 3600),
-    "wait_window_duration_ms": (int, 0, 60000),
-    "wait_window_max_extra": (int, 0, 100),
-    "proactive_temp_boost": (float, 0.0, 1.0),
-    "proactive_boost_duration": (int, 0, 3600),
-}
-
-
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.0")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.1")
 class ProSocialPlugin(Star):
     """主动社交插件入口（模块 G）。
 
@@ -191,12 +70,19 @@ class ProSocialPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
+        # ConfigStore：普通参数的默认值 + KV 持久化覆盖 + 内存缓存（v0.2.1，PRD F15.1）。
+        # __init__ 时用 DEFAULT_CONFIG 填充缓存，保证同步可读；KV 覆盖在 on_astrbot_loaded 加载。
+        self._config_store = ConfigStore()
+        # 特殊选择器键（chat_provider_id 等）仍由 AstrBotConfig 原生承载，不走 ConfigStore
+        self._SPECIAL_KEYS = ConfigStore.SPECIAL_KEYS
         # 数据目录：data/plugin_data/astrbot_plugin_proactive_social/
         self.data_dir = Path(get_astrbot_data_path()) / "plugin_data" / _PLUGIN_NAME
         # 兴趣管理器（启动时仅创建，加载在 scheduler.start 内触发）
         self.interest_mgr = InterestManager(self.data_dir, self._log)
         # 限流器（速率在 scheduler 主循环里实时同步配置）
-        rate_per_min = int(self.config.get("embedding_rate_limit_per_min", 30))
+        rate_per_min = int(
+            self._config_store.get().get("embedding_rate_limit_per_min", 30)
+        )
         self.rate_limiter = TokenBucketRateLimiter(rate_per_min)
         # scheduler 在 initialize 中构造（需要 self 的回调闭包）
         self.scheduler: SocialScheduler | None = None
@@ -249,8 +135,30 @@ class ProSocialPlugin(Star):
             self._log("error", f"initialize 失败: {e}")
 
     def _config_getter(self) -> dict:
-        """返回 live 配置 dict 引用（AstrBotConfig 继承 dict，Dashboard 写入后即时生效）。"""
-        return self.config
+        """合并 ConfigStore 缓存（普通参数）+ AstrBotConfig（特殊选择器）。
+
+        ConfigStore.get() 返回内存缓存引用（热更新语义：set_many 改缓存后立即生效）；
+        特殊选择器（chat_provider_id 等）仍从 self.config 读取（主面板原生渲染）。
+        """
+        cfg = dict(self._config_store.get())
+        for k in self._SPECIAL_KEYS:
+            if k in self.config:
+                cfg[k] = self.config[k]
+        return cfg
+
+    @filter.on_astrbot_loaded()
+    async def on_loaded(self):
+        """AstrBot 全部插件加载完成后：从 KV 读取配置覆盖项，更新 ConfigStore 缓存。
+
+        scheduler 已在 initialize 中启动（用默认配置），load 后缓存更新，
+        scheduler 下次读 _config_getter 自动用新值（热更新，无需重启）。
+        KV 异常/损坏 JSON 时保持默认，不崩溃插件。
+        """
+        try:
+            await self._config_store.load(self.get_kv_data)
+            self._log("info", "KV 配置已加载")
+        except Exception as e:
+            self._log("warning", f"加载 KV 配置失败，使用默认值: {e}")
 
     async def _kv_get(self, key: str, default=None):
         """KV 读取回调，包 self.get_kv_data（async）。"""
@@ -305,7 +213,9 @@ class ProSocialPlugin(Star):
             if not texts:
                 return []
             try:
-                prov_id = str(self.config.get("embedding_provider_id", "") or "")
+                prov_id = str(
+                    self._config_getter().get("embedding_provider_id", "") or ""
+                )
                 prov = None
                 if prov_id:
                     prov = self.context.get_provider_by_id(prov_id)
@@ -418,7 +328,7 @@ class ProSocialPlugin(Star):
             if ctx is None:
                 return
 
-            cfg = self.config
+            cfg = self._config_getter()
             top_n = int(cfg.get("long_window_top_n", 6))
             long_summarize = bool(cfg.get("long_window_summarize", False))
 
@@ -577,8 +487,9 @@ class ProSocialPlugin(Star):
                     "开始重新生成兴趣语料（1 次 LLM + 批量嵌入），请稍候..."
                 )
                 try:
-                    persona_text = str(self.config.get("persona_text", ""))
-                    persona_knowledge = str(self.config.get("persona_knowledge", ""))
+                    cfg = self._config_getter()
+                    persona_text = str(cfg.get("persona_text", ""))
+                    persona_knowledge = str(cfg.get("persona_knowledge", ""))
                     await self.interest_mgr.regenerate(
                         persona_text, persona_knowledge, self._llm_fn, self._embed_fn
                     )
@@ -639,7 +550,7 @@ class ProSocialPlugin(Star):
             try:
                 sp = float(speed)
             except (TypeError, ValueError):
-                sp = float(self.config.get("replay_speed", 1.0))
+                sp = float(self._config_getter().get("replay_speed", 1.0))
             # 回放是长任务，后台执行，立即回复
             asyncio.create_task(self.scheduler.replay(name, sp))
             yield event.plain_result(f"开始回放 {name}（倍速 {sp}，强制不发送）")
@@ -732,56 +643,39 @@ class ProSocialPlugin(Star):
         return self.scheduler._decision_log.recent(limit)
 
     def get_config_view(self) -> dict:
-        """返回可编辑参数子集。"""
-        return {
-            k: self.config.get(k) for k in _CONFIG_EDITABLE_KEYS if k in self.config
-        }
+        """返回全量配置（ConfigStore 快照 + 特殊选择器），供前端展示。
+
+        普通参数来自 ConfigStore.snapshot()（浅拷贝，外部修改不污染缓存）；
+        特殊选择器（chat_provider_id 等）从 self.config 叠加。
+        """
+        cfg = self._config_store.snapshot()
+        for k in self._SPECIAL_KEYS:
+            if k in self.config:
+                cfg[k] = self.config[k]
+        return cfg
 
     async def set_config_view(self, patch: dict) -> tuple[bool, str]:
-        """校验并写入配置子集，save_config 持久化。返回 (ok, error)。"""
+        """委托 ConfigStore.set_many 校验 + 写缓存 + 持久化 KV。返回 (ok, error)。
+
+        特殊键（chat_provider_id）由 ConfigStore.set_many 拒绝
+        （"特殊选择器，请在主面板配置"），Web API 不处理特殊键。
+        """
         if not isinstance(patch, dict):
             return False, "patch 必须是 JSON 对象"
-        for k, v in patch.items():
-            if k not in _CONFIG_EDITABLE_KEYS:
-                return False, f"不允许修改的配置项: {k}"
-            if k == "schedule":
-                if not isinstance(v, list):
-                    return False, "schedule 必须是列表"
-                continue
-            if k in ("rule_direct_wakeup_words", "rule_context_wakeup_words"):
-                if not isinstance(v, list):
-                    return False, f"{k} 必须是列表"
-                continue
-            rule = _CONFIG_VALIDATORS.get(k)
-            if rule is None:
-                continue
-            typ, lo, hi = rule
-            if typ is bool:
-                if not isinstance(v, bool):
-                    return False, f"{k} 必须是布尔值"
-            elif typ is int:
-                # bool 是 int 子类，需排除
-                if isinstance(v, bool) or not isinstance(v, int):
-                    return False, f"{k} 必须是整数"
-                if (lo is not None and v < lo) or (hi is not None and v > hi):
-                    return False, f"{k} 超出范围 [{lo}, {hi}]"
-            elif typ is float:
-                if isinstance(v, bool) or not isinstance(v, (int, float)):
-                    return False, f"{k} 必须是数值"
-                if (lo is not None and v < lo) or (hi is not None and v > hi):
-                    return False, f"{k} 超出范围 [{lo}, {hi}]"
-            # 校验通过，写入 live config
-            self.config[k] = v
-        try:
-            self.config.save_config()
-        except Exception as e:
-            return False, f"save_config 失败: {e}"
+        ok, msg = await self._config_store.set_many(patch, self.put_kv_data)
+        if not ok:
+            return False, msg
         return True, ""
 
     def get_groups_view(self) -> dict:
-        """群管理面板数据：mode/whitelist/各群运行时状态。"""
-        mode = str(self.config.get("group_mode", "whitelist"))
-        whitelist = list(self.config.get("group_whitelist", []) or [])
+        """群管理面板数据：mode/whitelist/各群运行时状态。
+
+        group_mode / group_whitelist 现由 ConfigStore 管理（v0.2.1），
+        从 _config_getter() 合并后的配置读取。
+        """
+        cfg = self._config_getter()
+        mode = str(cfg.get("group_mode", "whitelist"))
+        whitelist = list(cfg.get("group_whitelist", []) or [])
         groups: list = []
         if self.scheduler is not None:
             status = self.scheduler.get_status()
@@ -789,18 +683,30 @@ class ProSocialPlugin(Star):
         return {"mode": mode, "whitelist": whitelist, "groups": groups}
 
     async def set_groups_view(self, patch: dict) -> tuple[bool, str]:
-        """更新 mode/whitelist/group_toggles，save_config 持久化。返回 (ok, error)。"""
+        """更新 mode/whitelist/group_toggles。返回 (ok, error)。
+
+        mode / whitelist 走 ConfigStore.set_many（KV 持久化）；
+        group_toggles 走 scheduler.set_group_enabled（独立 KV 键 "group_enable"）。
+        """
         if not isinstance(patch, dict):
             return False, "patch 必须是 JSON 对象"
+        # 收集需写入 ConfigStore 的普通键
+        updates: dict = {}
         if "mode" in patch:
             if patch["mode"] not in ("whitelist", "all"):
                 return False, "mode 必须是 whitelist 或 all"
-            self.config["group_mode"] = patch["mode"]
+            updates["group_mode"] = patch["mode"]
         if "whitelist" in patch:
             wl = patch["whitelist"]
             if not isinstance(wl, list) or not all(isinstance(x, str) for x in wl):
                 return False, "whitelist 必须是字符串列表"
-            self.config["group_whitelist"] = wl
+            updates["group_whitelist"] = wl
+        # 事务性写入 ConfigStore（校验 + 缓存 + KV）
+        if updates:
+            ok, msg = await self._config_store.set_many(updates, self.put_kv_data)
+            if not ok:
+                return False, msg
+        # group_toggles 走 scheduler（独立 KV 键，不经 ConfigStore）
         if "group_toggles" in patch:
             toggles = patch["group_toggles"]
             if not isinstance(toggles, dict):
@@ -810,10 +716,6 @@ class ProSocialPlugin(Star):
                     if not isinstance(enabled, bool):
                         return False, f"group_toggles[{gid}] 必须是布尔值"
                     await self.scheduler.set_group_enabled(str(gid), enabled)
-        try:
-            self.config.save_config()
-        except Exception as e:
-            return False, f"save_config 失败: {e}"
         return True, ""
 
     # ------------------------------------------------------------------ #

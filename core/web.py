@@ -130,8 +130,8 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
             ok, err = await bridge.set_config_view(body)
             if not ok:
                 return _err(err)
-            # 返回写入后的最新配置视图，供前端刷新
-            return _ok(bridge.get_config_view())
+            # 返回已更新键数（set_config_view 事务性：ok 则全量写入；特殊键由 set_many 拒绝）
+            return _ok({"updated": len(body)})
         except Exception as e:
             return _err(str(e), 500)
 
