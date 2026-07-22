@@ -45,7 +45,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 # 注意：必须用相对导入（from .core.xxx）。AstrBot 把本插件作为
 # data.plugins.astrbot_plugin_proactive_social.main 子包加载，插件目录不在 sys.path 顶层，
 # 绝对导入 `from core.xxx` 会触发 ModuleNotFoundError: No module named 'core'。
-from .core.config_store import ConfigStore
+from .core.config_store import SPECIAL_KEYS, ConfigStore
 from .core.interest import InterestManager
 from .core.prompts import build_summary_prompt
 from .core.ratelimit import TokenBucketRateLimiter
@@ -74,7 +74,7 @@ class ProSocialPlugin(Star):
         # __init__ 时用 DEFAULT_CONFIG 填充缓存，保证同步可读；KV 覆盖在 on_astrbot_loaded 加载。
         self._config_store = ConfigStore()
         # 特殊选择器键（chat_provider_id 等）仍由 AstrBotConfig 原生承载，不走 ConfigStore
-        self._SPECIAL_KEYS = ConfigStore.SPECIAL_KEYS
+        self._SPECIAL_KEYS = SPECIAL_KEYS
         # 数据目录：data/plugin_data/astrbot_plugin_proactive_social/
         self.data_dir = Path(get_astrbot_data_path()) / "plugin_data" / _PLUGIN_NAME
         # 兴趣管理器（启动时仅创建，加载在 scheduler.start 内触发）
