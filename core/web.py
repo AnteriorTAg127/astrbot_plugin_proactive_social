@@ -3,9 +3,10 @@
 设计要点：
 - 本文件**严禁 import astrbot**，仅用标准库，保证 core/ 可离线单元测试。
 - main.py 实现 `WebBridge` 鸭子类型接口（get_status / get_decisions / get_config_view /
-  set_config_view / get_groups_view / set_groups_view），并负责通过
+  set_config_view / get_groups_view / set_groups_view / get_providers_view /
+  get_interests_view / set_interests_view），并负责通过
   `context.register_web_api` 注册路由、把本模块返回的 `(status, json)` 封装为 HTTP 响应。
-- `build_handlers(bridge)` 返回 7 个 async handler，签名统一为
+- `build_handlers(bridge)` 返回 10 个 async handler，签名统一为
   `async (params: dict, body: dict | None) -> tuple[int, dict]`。
 - 统一响应格式：成功 `(200, {"ok": True, "data": ...})`；
   失败 `(400, {"ok": False, "error": "..."})`；内部异常 `(500, {"ok": False, "error": "..."})`。
@@ -27,8 +28,9 @@ Handler = Callable[[dict, dict | None], Awaitable[tuple[int, dict]]]
 class WebBridge:
     """main.py 实现此接口（鸭子类型），web.py 只依赖这些方法。
 
-    同步方法：get_status / get_decisions / get_config_view / get_groups_view
-    异步方法：set_config_view / set_groups_view（返回 (ok, error)）
+    同步方法：get_status / get_decisions / get_config_view / get_groups_view /
+              get_providers_view / get_interests_view
+    异步方法：set_config_view / set_groups_view / set_interests_view（返回 (ok, error)）
     """
 
     def get_status(self) -> dict:  # pragma: no cover - 接口声明
@@ -53,6 +55,17 @@ class WebBridge:
     ) -> tuple[bool, str]:  # pragma: no cover
         ...
 
+    def get_providers_view(self) -> dict:  # pragma: no cover
+        ...
+
+    def get_interests_view(self) -> dict:  # pragma: no cover
+        ...
+
+    async def set_interests_view(
+        self, body: dict
+    ) -> tuple[bool, str]:  # pragma: no cover
+        ...
+
 
 def _ok(data: Any) -> tuple[int, dict]:
     """成功响应：200 + {"ok": True, "data": ...}"""
@@ -65,7 +78,7 @@ def _err(msg: str, status: int = 400) -> tuple[int, dict]:
 
 
 def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
-    """构造 7 个 Web API handler，key 形如 'GET /prosocial/status'。
+    """构造 10 个 Web API handler，key 形如 'GET /prosocial/status'。
 
     main.py 遍历此 dict，按 METHOD/PATH 注册到 `context.register_web_api`，
     并在自身 handler 中解析 query/body 调用对应函数，把返回的 (status, json) 转为响应。
@@ -155,6 +168,32 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         except Exception as e:
             return _err(str(e), 500)
 
+    async def get_providers(params: dict, body: dict | None) -> tuple[int, dict]:
+        try:
+            return _ok(bridge.get_providers_view())
+        except Exception as e:
+            return _err(str(e), 500)
+
+    async def get_interests(params: dict, body: dict | None) -> tuple[int, dict]:
+        try:
+            return _ok(bridge.get_interests_view())
+        except Exception as e:
+            return _err(str(e), 500)
+
+    async def post_interests(params: dict, body: dict | None) -> tuple[int, dict]:
+        try:
+            # 显式拒绝 None / 非 dict body（与 post_config/post_groups 行为一致）
+            if body is None:
+                return _err("请求体不能为空")
+            if not isinstance(body, dict):
+                return _err("请求体必须是 JSON 对象")
+            ok, err = await bridge.set_interests_view(body)
+            if not ok:
+                return _err(err)
+            return _ok({"ok": True})
+        except Exception as e:
+            return _err(str(e), 500)
+
     return {
         "GET /prosocial/status": get_status,
         "GET /prosocial/decisions": get_decisions,
@@ -163,4 +202,7 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         "POST /prosocial/config": post_config,
         "GET /prosocial/groups": get_groups,
         "POST /prosocial/groups": post_groups,
+        "GET /prosocial/providers": get_providers,
+        "GET /prosocial/interests": get_interests,
+        "POST /prosocial/interests": post_interests,
     }

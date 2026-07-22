@@ -111,15 +111,40 @@
       }
       .icon-btn:hover { background: var(--bg-elev); border-color: var(--border-strong); }
 
-      /* ===== 主区域：卡片网格 ===== */
+      /* ===== 主区域（F19：外层不再做 grid，每个 tab-panel 内自带 panel-grid）===== */
       main {
         padding: 16px;
-        display: grid;
-        grid-template-columns: repeat(12, 1fr);
-        gap: 14px;
         max-width: 1600px;
         margin: 0 auto;
       }
+      .panel-grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 14px;
+      }
+
+      /* ===== 顶层 Tab 导航（F19）===== */
+      .top-tabs {
+        display: flex; gap: 2px; flex-wrap: wrap;
+        padding: 0 16px;
+        background: var(--card);
+        border-bottom: 1px solid var(--border);
+      }
+      .top-tab {
+        padding: 10px 18px; font-size: 13px; font-weight: 600;
+        border: none; background: transparent;
+        color: var(--muted); cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: color .15s, border-color .15s, background .15s;
+        margin-bottom: -1px;
+      }
+      .top-tab:hover { color: var(--text); background: var(--bg-elev); }
+      .top-tab.active {
+        color: var(--accent); border-bottom-color: var(--accent);
+        background: transparent;
+      }
+      .tab-panel { display: none; }
+      .tab-panel.active { display: block; }
       .panel {
         background: var(--card);
         border: 1px solid var(--border);
@@ -421,6 +446,103 @@
       .wizard-foot { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
       .wizard-foot .spacer { flex: 1; }
 
+      /* ===== 兴趣关键词 Tab4（F20）===== */
+      .interests-wrap { padding: 0; }
+      .interests-head {
+        display: flex; align-items: center; gap: 12px;
+        margin-bottom: 12px; flex-wrap: wrap;
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 12px; padding: 12px 16px; box-shadow: var(--shadow);
+      }
+      .interests-head h2 {
+        margin: 0; font-size: 14px; font-weight: 600; color: var(--text);
+        flex: 1; text-transform: none; letter-spacing: 0;
+      }
+      .sub-tabs {
+        display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px;
+        border-bottom: 1px solid var(--border); padding-bottom: 8px;
+      }
+      .sub-tab {
+        padding: 5px 14px; font-size: 12px; font-weight: 500;
+        border: 1px solid transparent; background: transparent;
+        color: var(--muted); cursor: pointer; border-radius: 6px;
+        transition: all .15s;
+      }
+      .sub-tab:hover { background: var(--bg-elev); color: var(--text); }
+      .sub-tab.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+      .interest-level { display: none; }
+      .interest-level.active { display: block; }
+      .interest-card {
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow);
+        margin-bottom: 12px;
+      }
+      .interest-card .lv-head {
+        display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;
+        flex-wrap: wrap;
+      }
+      .interest-card .lv-topic { font-size: 14px; font-weight: 600; color: var(--text); }
+      .interest-card .lv-weight {
+        font-size: 11px; padding: 1px 8px; border-radius: 999px;
+        background: var(--accent-soft); color: var(--accent); font-family: var(--mono);
+      }
+      .interest-card .lv-label {
+        font-size: 10px; padding: 1px 6px; border-radius: 4px;
+        text-transform: uppercase; letter-spacing: .04em; font-weight: 600;
+      }
+      .lv-label.core { background: var(--ok-soft); color: var(--ok); }
+      .lv-label.general { background: var(--accent-soft); color: var(--accent); }
+      .lv-label.marginal { background: var(--warn-soft); color: var(--warn); }
+      .lv-label.hate { background: var(--err-soft); color: var(--err); }
+      .interest-section-title {
+        font-size: 11px; color: var(--muted); margin: 10px 0 4px;
+        text-transform: uppercase; letter-spacing: .04em;
+      }
+      .kw-list, .ex-list { display: flex; flex-direction: column; gap: 4px; }
+      .kw-item, .ex-item {
+        display: flex; align-items: center; gap: 8px;
+        padding: 5px 8px; background: var(--card-2); border: 1px solid var(--border);
+        border-radius: 6px; font-size: 12px;
+      }
+      .kw-item .text, .ex-item .text { flex: 1; word-break: break-all; }
+      .kw-item .del, .ex-item .del {
+        width: 22px; height: 22px; border-radius: 5px;
+        border: 1px solid var(--border); background: transparent;
+        color: var(--err); cursor: pointer; font-size: 14px; line-height: 1;
+        display: flex; align-items: center; justify-content: center;
+        transition: background .15s;
+      }
+      .kw-item .del:hover, .ex-item .del:hover { background: var(--err-soft); }
+      .kw-item .del:disabled, .ex-item .del:disabled { opacity: .5; cursor: not-allowed; }
+      .rejected-area {
+        margin-top: 16px; padding: 12px;
+        background: var(--bg-elev); border: 1px dashed var(--border-strong);
+        border-radius: 8px;
+      }
+      .rejected-area .title {
+        font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px;
+      }
+      .rejected-item {
+        display: inline-block; padding: 2px 8px; margin: 2px;
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 4px; font-size: 11px; color: var(--subtle);
+        text-decoration: line-through;
+      }
+
+      /* ===== 配置字段无效状态（F22 inline 校验 + 保存错误标红）===== */
+      .cfg-field.invalid input,
+      .cfg-field.invalid select,
+      .cfg-field.invalid textarea,
+      .cfg-field.invalid .sched-editor {
+        border-color: var(--err) !important;
+        box-shadow: 0 0 0 3px var(--err-soft) !important;
+      }
+      .cfg-field .err-msg {
+        font-size: 10px; color: var(--err); margin-top: 2px;
+        display: none;
+      }
+      .cfg-field.invalid .err-msg { display: block; }
+
       @media (max-width: 1100px) {
         .span-3, .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: span 12; }
       }
@@ -444,114 +566,158 @@
       <button class="icon-btn" id="themeBtn" title="切换主题">◐</button>
     </header>
 
+    <!-- 顶层 Tab 导航（F19）-->
+    <nav class="top-tabs" id="topTabs">
+      <button class="top-tab active" data-tab="overview">概览</button>
+      <button class="top-tab" data-tab="decisions">决策记录</button>
+      <button class="top-tab" data-tab="groups">群管理</button>
+      <button class="top-tab" data-tab="interests">兴趣关键词</button>
+      <button class="top-tab" data-tab="config">配置</button>
+    </nav>
+
     <main>
-      <!-- 1. 状态面板 -->
-      <section class="panel span-5" id="panel-status">
-        <h2><span class="dot" id="liveDot"></span><span class="title">运行状态</span></h2>
-        <div class="kv-grid" id="statusGrid"><div class="empty">加载中…</div></div>
-        <div class="gauge" id="fatigueGauge">
-          <div class="gauge-head">
-            <span class="gauge-label">全局疲劳 · Fatigue</span>
-            <span class="gauge-value num"><span id="ftgValue">—</span><span class="limit"> / <span id="ftgLimit">—</span></span></span>
+      <!-- ===== Tab 1: 概览 ===== -->
+      <div class="tab-panel active" data-tab="overview">
+        <div class="panel-grid">
+          <!-- 1. 状态面板 -->
+          <section class="panel span-5" id="panel-status">
+            <h2><span class="dot" id="liveDot"></span><span class="title">运行状态</span></h2>
+            <div class="kv-grid" id="statusGrid"><div class="empty">加载中…</div></div>
+            <div class="gauge" id="fatigueGauge">
+              <div class="gauge-head">
+                <span class="gauge-label">全局疲劳 · Fatigue</span>
+                <span class="gauge-value num"><span id="ftgValue">—</span><span class="limit"> / <span id="ftgLimit">—</span></span></span>
+              </div>
+              <div class="bar"><i id="ftgBar" style="width:0%"></i></div>
+              <div class="gauge-foot">
+                <span>比率 <span class="num" id="ftgRatio">—</span></span>
+                <span>级别 <span id="ftgLevel">—</span></span>
+              </div>
+            </div>
+          </section>
+
+          <!-- 2. 群与惯性状态 -->
+          <section class="panel span-7" id="panel-groups-state">
+            <h2><span class="dot live"></span><span class="title">群状态机 · 惯性</span></h2>
+            <div id="groupStateList"><div class="empty">加载中…</div></div>
+          </section>
+
+          <!-- 4. DRY_RUN（独立成行）-->
+          <section class="panel span-12" id="panel-dryrun">
+            <h2><span class="title">DRY_RUN 干运行</span></h2>
+            <div class="dry-row">
+              <label class="switch">
+                <input type="checkbox" id="dryToggle" />
+                <span class="slider"></span>
+              </label>
+              <span id="dryLabel">—</span>
+            </div>
+            <div class="meta" style="font-size:11px;color:var(--muted);margin-top:8px;">
+              开启后决策流程正常执行，但不生成/发送消息。回放期间自动视同 DRY。
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ===== Tab 2: 决策记录 ===== -->
+      <div class="tab-panel" data-tab="decisions">
+        <div class="panel-grid">
+          <!-- 3. 决策记录 -->
+          <section class="panel span-12" id="panel-decisions">
+            <h2><span class="dot live"></span><span class="title">决策记录</span><span class="meta" style="font-size:11px;color:var(--muted);margin-left:8px;" id="decCount"></span></h2>
+            <div class="decisions-wrap">
+              <table id="decTable">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>群</th>
+                    <th>批次摘要</th>
+                    <th>通道</th>
+                    <th class="td-num">score_a</th>
+                    <th class="td-num">score_b</th>
+                    <th class="td-num">α</th>
+                    <th class="td-num">final / threshold</th>
+                    <th>级别</th>
+                    <th>疲劳</th>
+                    <th>触发</th>
+                    <th>DRY</th>
+                    <th>抑制原因</th>
+                  </tr>
+                </thead>
+                <tbody id="decBody"><tr><td colspan="13" class="empty">加载中…</td></tr></tbody>
+              </table>
+            </div>
+            <div class="trend-wrap">
+              <svg id="trendSvg" viewBox="0 0 600 180" preserveAspectRatio="none"></svg>
+              <div class="legend">
+                <span class="lg"><span class="sw" style="background:#f59e0b"></span>score_a (规则)</span>
+                <span class="lg"><span class="sw" style="background:#8b5cf6"></span>score_b (向量)</span>
+                <span class="lg"><span class="sw" style="background:#2563eb"></span>final (融合)</span>
+                <span class="lg"><span class="sw" style="background:#94a3b8;border-top:1px dashed #94a3b8;background:transparent;height:0;border-bottom:2px dashed #94a3b8;"></span>threshold</span>
+                <span style="margin-left:auto">最近 50 条（左旧右新）</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ===== Tab 3: 群管理 ===== -->
+      <div class="tab-panel" data-tab="groups">
+        <div class="panel-grid">
+          <!-- 5. 群管理 -->
+          <section class="panel span-12" id="panel-groups">
+            <h2><span class="title">群管理</span></h2>
+            <div class="radio-row">
+              <label><input type="radio" name="gmode" value="whitelist" /> 白名单模式</label>
+              <label><input type="radio" name="gmode" value="all" /> 全部群</label>
+            </div>
+            <div style="margin-top:6px;">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;">白名单</div>
+              <div style="display:flex;gap:6px;">
+                <input type="text" id="wlInput" placeholder="输入群 ID 后回车或点添加" class="text-input" style="flex:1;" />
+                <button class="btn" id="wlAdd">添加</button>
+              </div>
+              <div id="wlList" style="margin-top:6px;"></div>
+            </div>
+            <div style="margin-top:10px;">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;">已出现群（运行时启停）</div>
+              <div id="groupList"><div class="empty">加载中…</div></div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ===== Tab 4: 兴趣关键词（F20）===== -->
+      <div class="tab-panel" data-tab="interests">
+        <div class="interests-wrap">
+          <div class="interests-head">
+            <h2>兴趣关键词</h2>
+            <span class="meta" id="interestMeta" style="font-size:11px;color:var(--muted);"></span>
+            <div class="actions-row">
+              <button class="btn" id="interestApply">应用过滤（重算向量）</button>
+              <button class="btn ghost" id="interestReload">重新加载</button>
+            </div>
           </div>
-          <div class="bar"><i id="ftgBar" style="width:0%"></i></div>
-          <div class="gauge-foot">
-            <span>比率 <span class="num" id="ftgRatio">—</span></span>
-            <span>级别 <span id="ftgLevel">—</span></span>
-          </div>
+          <div id="interestContent"><div class="empty">切换到此页加载…</div></div>
         </div>
-      </section>
+      </div>
 
-      <!-- 2. 群与惯性状态 -->
-      <section class="panel span-7" id="panel-groups-state">
-        <h2><span class="dot live"></span><span class="title">群状态机 · 惯性</span></h2>
-        <div id="groupStateList"><div class="empty">加载中…</div></div>
-      </section>
-
-      <!-- 3. 决策记录 -->
-      <section class="panel span-12" id="panel-decisions">
-        <h2><span class="dot live"></span><span class="title">决策记录</span><span class="meta" style="font-size:11px;color:var(--muted);margin-left:8px;" id="decCount"></span></h2>
-        <div class="decisions-wrap">
-          <table id="decTable">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>群</th>
-                <th>批次摘要</th>
-                <th>通道</th>
-                <th class="td-num">score_a</th>
-                <th class="td-num">score_b</th>
-                <th class="td-num">α</th>
-                <th class="td-num">final / threshold</th>
-                <th>级别</th>
-                <th>疲劳</th>
-                <th>触发</th>
-                <th>DRY</th>
-                <th>抑制原因</th>
-              </tr>
-            </thead>
-            <tbody id="decBody"><tr><td colspan="13" class="empty">加载中…</td></tr></tbody>
-          </table>
+      <!-- ===== Tab 5: 配置 ===== -->
+      <div class="tab-panel" data-tab="config">
+        <div class="panel-grid">
+          <!-- 6. 实时配置 -->
+          <section class="panel span-12" id="panel-config">
+            <h2><span class="title">实时配置</span><span class="meta" style="font-size:11px;color:var(--muted);margin-left:8px;">仅 dirty 字段提交，3 秒防抖自动保存</span></h2>
+            <div class="cfg-tabs" id="cfgTabs"></div>
+            <div id="cfgForm"><div class="empty">加载中…</div></div>
+            <div class="actions">
+              <button class="btn" id="cfgSave">保存修改</button>
+              <button class="btn ghost" id="cfgReload">重新加载</button>
+              <span class="save-msg" id="cfgMsg"></span>
+            </div>
+          </section>
         </div>
-        <div class="trend-wrap">
-          <svg id="trendSvg" viewBox="0 0 600 180" preserveAspectRatio="none"></svg>
-          <div class="legend">
-            <span class="lg"><span class="sw" style="background:#f59e0b"></span>score_a (规则)</span>
-            <span class="lg"><span class="sw" style="background:#8b5cf6"></span>score_b (向量)</span>
-            <span class="lg"><span class="sw" style="background:#2563eb"></span>final (融合)</span>
-            <span class="lg"><span class="sw" style="background:#94a3b8;border-top:1px dashed #94a3b8;background:transparent;height:0;border-bottom:2px dashed #94a3b8;"></span>threshold</span>
-            <span style="margin-left:auto">最近 50 条（左旧右新）</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- 4. DRY_RUN -->
-      <section class="panel span-4" id="panel-dryrun">
-        <h2><span class="title">DRY_RUN 干运行</span></h2>
-        <div class="dry-row">
-          <label class="switch">
-            <input type="checkbox" id="dryToggle" />
-            <span class="slider"></span>
-          </label>
-          <span id="dryLabel">—</span>
-        </div>
-        <div class="meta" style="font-size:11px;color:var(--muted);margin-top:8px;">
-          开启后决策流程正常执行，但不生成/发送消息。回放期间自动视同 DRY。
-        </div>
-      </section>
-
-      <!-- 5. 群管理 -->
-      <section class="panel span-8" id="panel-groups">
-        <h2><span class="title">群管理</span></h2>
-        <div class="radio-row">
-          <label><input type="radio" name="gmode" value="whitelist" /> 白名单模式</label>
-          <label><input type="radio" name="gmode" value="all" /> 全部群</label>
-        </div>
-        <div style="margin-top:6px;">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;">白名单</div>
-          <div style="display:flex;gap:6px;">
-            <input type="text" id="wlInput" placeholder="输入群 ID 后回车或点添加" class="text-input" style="flex:1;" />
-            <button class="btn" id="wlAdd">添加</button>
-          </div>
-          <div id="wlList" style="margin-top:6px;"></div>
-        </div>
-        <div style="margin-top:10px;">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;">已出现群（运行时启停）</div>
-          <div id="groupList"><div class="empty">加载中…</div></div>
-        </div>
-      </section>
-
-      <!-- 6. 实时配置 -->
-      <section class="panel span-12" id="panel-config">
-        <h2><span class="title">实时配置</span><span class="meta" style="font-size:11px;color:var(--muted);margin-left:8px;">仅 dirty 字段提交</span></h2>
-        <div class="cfg-tabs" id="cfgTabs"></div>
-        <div id="cfgForm"><div class="empty">加载中…</div></div>
-        <div class="actions">
-          <button class="btn" id="cfgSave">保存修改</button>
-          <button class="btn ghost" id="cfgReload">重新加载</button>
-          <span class="save-msg" id="cfgMsg"></span>
-        </div>
-      </section>
+      </div>
     </main>
 
     <!-- Toast 提示 -->
@@ -591,6 +757,30 @@
       var pollTimer = null;
       var currentCfgTab = "basic";  // 当前激活的配置分组
 
+      // F19 顶层 tab 状态
+      var TAB_KEYS = ["overview", "decisions", "groups", "interests", "config"];
+      var TAB_STORAGE_KEY = "prosocial_tab";
+      var currentTab = "overview";
+
+      // F18 providers 数据
+      var providersData = null;      // {chat:[id...], embedding:[id...]}
+
+      // F20 interests 数据
+      var interestsData = null;      // GET /prosocial/interests 返回（null=未加载）
+      var currentInterestTab = "core";
+      var INTEREST_LABELS = ["core", "general", "marginal", "hate"];
+      var INTEREST_LABEL_NAMES = {
+        core: "Core（核心）",
+        general: "General（一般）",
+        marginal: "Marginal（边缘）",
+        hate: "Hate（反感）"
+      };
+
+      // F21 防抖自动保存
+      var AUTO_SAVE_MS = 3000;
+      var autoSaveTimer = null;
+      var autoSaveInFlight = false;
+
       // ============ 默认配置（镜像 ConfigStore.DEFAULT_CONFIG，用于向导首启判定与改动汇总）============
       var DEFAULT_CONFIG = {
         enable: true, dry_run: false, embedding_provider_id: "",
@@ -628,7 +818,7 @@
           fields: [
             { key: "enable", label: "插件总开关", type: "bool", hint: "插件总开关" },
             { key: "dry_run", label: "DRY_RUN 干运行", type: "bool", hint: "开启后决策流程全部正常执行，但不生成、不发送消息" },
-            { key: "embedding_provider_id", label: "Embedding 提供商 ID", type: "string", hint: "留空 = 用第一个可用的 Embedding Provider" },
+            { key: "embedding_provider_id", label: "Embedding 提供商 ID", type: "select", dynamic: "embedding_providers", options: [{ value: "", label: "（自动，留空）" }], hint: "留空 = 用第一个可用的 Embedding Provider（选项来自 GET providers）" },
             { key: "persona_text", label: "人设描述", type: "text", full: true, hint: "人设自然语言描述（启动时据此生成兴趣分级，文本哈希变化会触发重建）" },
             { key: "persona_knowledge", label: "补充知识", type: "text", full: true, hint: "补充知识文档（可选，作为兴趣生成的额外上下文）" },
             { key: "group_mode", label: "群启用模式", type: "select", options: [{ value: "whitelist", label: "白名单模式" }, { value: "all", label: "全部群" }], hint: "whitelist 仅白名单内群启用；all 全部群启用" },
@@ -1154,10 +1344,22 @@
         var el = e.target;
         if (!el) return;
         // 直接配置字段（id 以 cfg_ 开头）
-        if (el.id && el.id.indexOf("cfg_") === 0) { el.classList.add("dirty"); return; }
+        if (el.id && el.id.indexOf("cfg_") === 0) {
+          el.classList.add("dirty");
+          // F22 inline 校验：int/float 实时检查非法值
+          var key = el.id.substring(4);
+          var f = findField(key);
+          if (f) validateFieldInline(f);
+          // F21 防抖自动保存
+          scheduleAutoSave();
+          return;
+        }
         // schedule 编辑器内部 input：标记其容器为脏
         var box = el.closest ? el.closest(".sched-editor") : null;
-        if (box && box.id) { box.classList.add("dirty"); }
+        if (box && box.id) {
+          box.classList.add("dirty");
+          scheduleAutoSave();
+        }
       }
       function fillConfigForm(cfg) {
         loadedConfig = cfg || {};
@@ -1169,18 +1371,117 @@
         var els = document.querySelectorAll("#cfgForm .dirty");
         for (var i = 0; i < els.length; i++) els[i].classList.remove("dirty");
       }
+      // F22 健壮版 collectDirty：逐字段 try/catch，校验通过入 patch，失败入 errors，不再抛错
       function collectDirty() {
-        var patch = {};
-        var hasDirty = false;
+        var patch = {}, errors = [], hasDirty = false;
         CONFIG_GROUPS.forEach(function (grp) {
           grp.fields.forEach(function (f) {
             var el = document.getElementById("cfg_" + f.key);
             if (!el || !el.classList.contains("dirty")) return;
-            patch[f.key] = collectField(f, "cfg"); // 解析失败抛错，由调用方捕获
             hasDirty = true;
+            try {
+              patch[f.key] = collectField(f, "cfg");
+              clearFieldInvalid(f.key);
+            } catch (e) {
+              errors.push({ key: f.key, label: f.label, msg: e.message });
+            }
           });
         });
-        return hasDirty ? patch : null;
+        return hasDirty ? { patch: patch, errors: errors } : null;
+      }
+      // F22 字段标红 / 清除
+      function markFieldInvalid(key, msg) {
+        var el = document.getElementById("cfg_" + key);
+        if (!el) return;
+        var field = el.closest ? el.closest(".cfg-field") : null;
+        if (!field) return;
+        field.classList.add("invalid");
+        var errEl = field.querySelector(".err-msg");
+        if (!errEl) {
+          errEl = document.createElement("span");
+          errEl.className = "err-msg";
+          field.appendChild(errEl);
+        }
+        errEl.textContent = msg;
+      }
+      function clearFieldInvalid(key) {
+        var el = document.getElementById("cfg_" + key);
+        if (!el) return;
+        var field = el.closest ? el.closest(".cfg-field") : null;
+        if (!field) return;
+        field.classList.remove("invalid");
+        var errEl = field.querySelector(".err-msg");
+        if (errEl) errEl.textContent = "";
+      }
+      // F22 inline 校验：int/float input 时实时检查（空值不标红，仅保存时拦截）
+      function validateFieldInline(f) {
+        if (f.type !== "int" && f.type !== "float") return;
+        var el = document.getElementById("cfg_" + f.key);
+        if (!el) return;
+        var v = (el.value || "").trim();
+        if (v === "") { clearFieldInvalid(f.key); return; }
+        var isValid;
+        if (f.type === "int") {
+          isValid = /^-?\d+$/.test(v);
+        } else {
+          isValid = /^-?\d*\.?\d+$/.test(v) && isFinite(Number(v));
+        }
+        if (!isValid) {
+          markFieldInvalid(f.key, f.label + " 需为" + (f.type === "int" ? "整数" : "数字"));
+        } else {
+          clearFieldInvalid(f.key);
+        }
+      }
+      // F21 防抖自动保存：3 秒内无新输入则触发
+      function scheduleAutoSave() {
+        if (autoSaveTimer) clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(autoSave, AUTO_SAVE_MS);
+      }
+      function flushAutoSave() {
+        // 立即触发保存（切 tab / beforeunload），不等防抖
+        if (autoSaveTimer) {
+          clearTimeout(autoSaveTimer);
+          autoSaveTimer = null;
+          autoSave();
+        }
+      }
+      function autoSave() {
+        autoSaveTimer = null;
+        if (autoSaveInFlight) {
+          // 上一次还在跑，重新调度等下一次
+          scheduleAutoSave();
+          return;
+        }
+        if (!bridge) return;
+        var result = collectDirty();  // F22 不抛错
+        if (!result) return;
+        // 仅 errors 无合法字段：标红 + 提示，不发起请求
+        if (!Object.keys(result.patch).length) {
+          if (result.errors.length) {
+            result.errors.forEach(function (e) { markFieldInvalid(e.key, e.label + " " + e.msg); });
+            toast(result.errors.length + " 项保存失败", "err");
+          }
+          return;
+        }
+        autoSaveInFlight = true;
+        var patch = result.patch;
+        callApi(bridge.apiPost("prosocial/config", patch)).then(function (d) {
+          // 清除合法字段的 dirty
+          Object.keys(patch).forEach(function (k) {
+            var el = document.getElementById("cfg_" + k);
+            if (el) el.classList.remove("dirty");
+            loadedConfig[k] = patch[k];
+          });
+          var n = (d && typeof d.updated === "number") ? d.updated : Object.keys(patch).length;
+          toast("已自动保存 " + n + " 项", "ok");
+          if (result.errors.length) {
+            result.errors.forEach(function (e) { markFieldInvalid(e.key, e.label + " " + e.msg); });
+          }
+        }).catch(function (e) {
+          toast("自动保存失败: " + e.message, "err");
+        }).finally(function () {
+          autoSaveInFlight = false;
+        });
       }
       // 向导保存后同步配置面板（不覆盖用户正在编辑的脏字段）
       function syncConfigFormFromLoaded() {
@@ -1215,6 +1516,11 @@
         renderWizardStep();
       }
       function closeWizard() { document.getElementById("wizardOverlay").classList.remove("show"); }
+      // F23：退出前若有未保存改动，弹确认；取消则不关。Esc 与「退出」按钮共用
+      function tryCloseWizard() {
+        if (Object.keys(wizardPatch).length && !confirm("有未保存的改动，确定退出？")) return;
+        closeWizard();
+      }
 
       // 深比较（用于判定与默认值是否不同，支持数组/对象）
       function deepEqual(a, b) {
@@ -1386,6 +1692,7 @@
         callApi(bridge.apiGet("prosocial/config")).then(function (d) {
           buildConfigForm();
           fillConfigForm(d);
+          populateEmbeddingSelects("cfg");   // F18：若 providers 已加载，填充下拉选项
           document.getElementById("cfgMsg").textContent = "";
           // 首启自动弹配置向导：persona_text 仍为默认值且本次会话未弹过
           if (!wizardAutoOpened && d && d.persona_text === DEFAULT_CONFIG.persona_text) {
@@ -1399,10 +1706,232 @@
         callApi(bridge.apiGet("prosocial/groups")).then(function (d) { renderGroups(d); })
           .catch(function (e) { showErr("群列表加载失败: " + e.message); });
       }
+      // F18 加载 chat/embedding provider id 列表，供 embedding_provider_id 下拉用
+      function loadProviders() {
+        if (!bridge) return;
+        callApi(bridge.apiGet("prosocial/providers")).then(function (d) {
+          providersData = d || { chat: [], embedding: [] };
+          populateEmbeddingSelects("cfg");
+          populateEmbeddingSelects("wiz");
+        }).catch(function (e) { showErr("Provider 列表加载失败: " + e.message); });
+      }
+      // F18 把 provider id 列表追加到 embedding_provider_id <select>（保留首项「（自动，留空）」）
+      function populateEmbeddingSelects(idPrefix) {
+        if (!providersData || !providersData.embedding) return;
+        var sel = document.getElementById(idPrefix + "_embedding_provider_id");
+        if (!sel) return;
+        var existing = {};
+        for (var i = 0; i < sel.options.length; i++) existing[sel.options[i].value] = true;
+        (providersData.embedding || []).forEach(function (pid) {
+          if (existing[pid]) return;
+          var opt = document.createElement("option");
+          opt.value = pid;
+          opt.textContent = pid;
+          sel.appendChild(opt);
+        });
+        // 重新设置当前值（fillField 可能因选项未就绪未生效）
+        var cur = loadedConfig["embedding_provider_id"] || "";
+        sel.value = cur;
+      }
+
+      // ============ 兴趣关键词 Tab4（F20）============
+      function loadInterests() {
+        if (!bridge) return;
+        var content = document.getElementById("interestContent");
+        if (content) content.innerHTML = '<div class="empty">加载中…</div>';
+        callApi(bridge.apiGet("prosocial/interests")).then(function (d) {
+          interestsData = d || {};
+          renderInterests(d);
+        }).catch(function (e) {
+          if (content) content.innerHTML = '<div class="empty">加载失败: ' + escapeHtml(e.message) + '</div>';
+        });
+      }
+      function ensureInterestBound() {
+        // content 容器事件委托（只绑一次），处理 .del 与 .sub-tab 点击
+        var content = document.getElementById("interestContent");
+        if (!content || content._interestBound) return;
+        content._interestBound = true;
+        content.addEventListener("click", function (e) {
+          var delBtn = e.target.closest ? e.target.closest(".del") : null;
+          var subBtn = e.target.closest ? e.target.closest(".sub-tab") : null;
+          if (delBtn) {
+            if (delBtn._disabled) return;
+            var kind = delBtn.getAttribute("data-kind");
+            var label = delBtn.getAttribute("data-label") || "";
+            var text = delBtn.getAttribute("data-text") || "";
+            if (!kind || !text) return;
+            delBtn._disabled = true;
+            delBtn.disabled = true;
+            rejectInterest(kind, label, text, delBtn);
+          } else if (subBtn) {
+            currentInterestTab = subBtn.getAttribute("data-lv");
+            var allTabs = content.querySelectorAll(".sub-tab");
+            for (var i = 0; i < allTabs.length; i++) {
+              allTabs[i].classList.toggle("active", allTabs[i].getAttribute("data-lv") === currentInterestTab);
+            }
+            var allLevels = content.querySelectorAll(".interest-level");
+            for (var j = 0; j < allLevels.length; j++) {
+              allLevels[j].classList.toggle("active", allLevels[j].getAttribute("data-lv") === currentInterestTab);
+            }
+          }
+        });
+      }
+      function renderInterests(data) {
+        var content = document.getElementById("interestContent");
+        if (!content) return;
+        var metaEl = document.getElementById("interestMeta");
+        if (metaEl) metaEl.textContent = data && data.persona_hash ? ("persona_hash: " + data.persona_hash) : "";
+        if (!data || !data.generated) {
+          var hash = (data && data.persona_hash) ? data.persona_hash : "";
+          content.innerHTML = '<div class="empty">尚未生成兴趣数据，请在配置页设置人设后等待生成'
+            + (hash ? '（persona_hash: <span class="num">' + escapeHtml(hash) + '</span>）' : '')
+            + '</div>';
+          return;
+        }
+        var items = data.items || [];
+        var hateKw = data.hate_keywords || [];
+        var highKw = data.high_interest_keywords || [];
+        var rejected = data.rejected || { examples: [], keywords: [] };
+
+        // 子 tab 栏
+        var html = '<div class="sub-tabs" id="interestSubTabs">';
+        INTEREST_LABELS.forEach(function (lv) {
+          html += '<button class="sub-tab' + (lv === currentInterestTab ? " active" : "") + '" data-lv="' + lv + '">'
+            + escapeHtml(INTEREST_LABEL_NAMES[lv] || lv) + '</button>';
+        });
+        html += '</div>';
+
+        // 各 level 内容
+        INTEREST_LABELS.forEach(function (lv) {
+          var item = items.filter(function (it) { return it.label === lv; })[0]
+            || { label: lv, topic: "（无）", examples: [], weight: 0 };
+          html += '<div class="interest-level' + (lv === currentInterestTab ? " active" : "") + '" data-lv="' + lv + '">';
+          html += '<div class="interest-card">';
+          html += '<div class="lv-head">';
+          html += '<span class="lv-label ' + lv + '">' + escapeHtml(lv) + '</span>';
+          html += '<span class="lv-topic">' + escapeHtml(item.topic || "（无）") + '</span>';
+          html += '<span class="lv-weight">weight: ' + fmtFixed(item.weight, 2) + '</span>';
+          html += '</div>';
+          // examples
+          html += '<div class="interest-section-title">示例句子（点 × 过滤）</div>';
+          var exs = item.examples || [];
+          if (!exs.length) {
+            html += '<div class="empty">无示例</div>';
+          } else {
+            html += '<div class="ex-list">';
+            exs.forEach(function (ex) {
+              html += '<div class="ex-item"><span class="text">' + escapeHtml(ex) + '</span>'
+                + '<button class="del" data-kind="example" data-label="' + escapeHtml(lv) + '" data-text="' + escapeHtml(ex) + '" title="过滤此示例">×</button>'
+                + '</div>';
+            });
+            html += '</div>';
+          }
+          // keywords：core/general 显示 high_interest_keywords，hate 显示 hate_keywords
+          var kws = [];
+          var kwTitle = "";
+          if (lv === "core" || lv === "general") {
+            kws = highKw;
+            kwTitle = "高唤醒关键词（适用 core/general，点 × 过滤）";
+          } else if (lv === "hate") {
+            kws = hateKw;
+            kwTitle = "反感关键词（点 × 过滤）";
+          }
+          if (kwTitle) {
+            html += '<div class="interest-section-title">' + kwTitle + '</div>';
+            if (!kws.length) {
+              html += '<div class="empty">无关键词</div>';
+            } else {
+              html += '<div class="kw-list">';
+              kws.forEach(function (kw) {
+                html += '<div class="kw-item"><span class="text">' + escapeHtml(kw) + '</span>'
+                  + '<button class="del" data-kind="keyword" data-text="' + escapeHtml(kw) + '" title="过滤此关键词">×</button>'
+                  + '</div>';
+              });
+              html += '</div>';
+            }
+          }
+          html += '</div>';  // interest-card
+          html += '</div>';  // interest-level
+        });
+
+        // rejected 区
+        var rejEx = rejected.examples || [];
+        var rejKw = rejected.keywords || [];
+        if (rejEx.length || rejKw.length) {
+          html += '<div class="rejected-area">';
+          html += '<div class="title">已过滤项（如需恢复，请重新生成人设）</div>';
+          rejEx.forEach(function (r) {
+            html += '<span class="rejected-item">[' + escapeHtml(r.label || "") + '] ' + escapeHtml(r.text || "") + '</span>';
+          });
+          rejKw.forEach(function (r) {
+            html += '<span class="rejected-item">' + escapeHtml(r || "") + '</span>';
+          });
+          html += '</div>';
+        }
+
+        content.innerHTML = html;
+      }
+      function rejectInterest(kind, label, text, btn) {
+        if (!bridge) return;
+        var body = { action: "reject", kind: kind, text: text };
+        if (kind === "example") body.label = label;
+        callApi(bridge.apiPost("prosocial/interests", body)).then(function () {
+          toast("已过滤", "ok");
+          loadInterests();   // 删除后刷新
+        }).catch(function (e) {
+          toast("过滤失败: " + e.message, "err");
+          if (btn) { btn._disabled = false; btn.disabled = false; }
+        });
+      }
+      function applyInterestFilter() {
+        if (!bridge) return;
+        var btn = document.getElementById("interestApply");
+        if (btn) { btn.disabled = true; btn.textContent = "重算中…"; }
+        callApi(bridge.apiPost("prosocial/interests", { action: "apply" })).then(function () {
+          toast("已重算", "ok");
+          loadInterests();
+        }).catch(function (e) {
+          toast("重算失败: " + e.message, "err");
+        }).finally(function () {
+          if (btn) { btn.disabled = false; btn.textContent = "应用过滤（重算向量）"; }
+        });
+      }
+
+      // ============ 顶层 Tab 切换（F19）============
+      function switchTab(key) {
+        if (TAB_KEYS.indexOf(key) < 0) key = "overview";
+        // 切 tab 前若有 dirty，立即触发保存（不等防抖）
+        flushAutoSave();
+        currentTab = key;
+        try { localStorage.setItem(TAB_STORAGE_KEY, key); } catch (e) {}
+        var tabs = document.querySelectorAll(".top-tab");
+        for (var i = 0; i < tabs.length; i++) {
+          tabs[i].classList.toggle("active", tabs[i].getAttribute("data-tab") === key);
+        }
+        var panels = document.querySelectorAll(".tab-panel");
+        for (var j = 0; j < panels.length; j++) {
+          panels[j].classList.toggle("active", panels[j].getAttribute("data-tab") === key);
+        }
+        // 切到 interests 时加载兴趣数据
+        if (key === "interests") loadInterests();
+      }
+      function initTab() {
+        var saved = null;
+        try { saved = localStorage.getItem(TAB_STORAGE_KEY); } catch (e) {}
+        if (saved && TAB_KEYS.indexOf(saved) >= 0) currentTab = saved;
+        switchTab(currentTab);
+      }
       function pollOnce() {
         if (document.hidden) return; // 页面不可见时跳过，减少负担
-        loadStatus();
-        loadDecisions();
+        // F19 按当前 tab 轮询，减少无用请求
+        if (currentTab === "overview") {
+          loadStatus();   // 含 status + groups-state + dryrun 渲染
+        } else if (currentTab === "decisions") {
+          loadDecisions();
+        } else if (currentTab === "groups") {
+          loadGroups();
+        }
+        // interests / config tab 不轮询
       }
 
       // ============ 事件绑定 ============
@@ -1413,19 +1942,30 @@
           document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
         });
 
+        // F19 顶层 tab 切换（事件委托）
+        document.getElementById("topTabs").addEventListener("click", function (e) {
+          var btn = e.target.closest ? e.target.closest(".top-tab") : null;
+          if (!btn) return;
+          switchTab(btn.getAttribute("data-tab"));
+        });
+
+        // F20 兴趣关键词按钮 + content 事件委托
+        document.getElementById("interestApply").addEventListener("click", applyInterestFilter);
+        document.getElementById("interestReload").addEventListener("click", loadInterests);
+        ensureInterestBound();
+
         // 配置向导按钮
         document.getElementById("wizardBtn").addEventListener("click", openWizard);
         document.getElementById("wizNext").addEventListener("click", wizNext);
         document.getElementById("wizPrev").addEventListener("click", wizPrev);
-        document.getElementById("wizExit").addEventListener("click", function () {
-          if (Object.keys(wizardPatch).length && !confirm("有未保存的改动，确定退出向导？")) return;
-          closeWizard();
-        });
-        // 点遮罩空白处关闭（同样提示未保存）
-        document.getElementById("wizardOverlay").addEventListener("click", function (e) {
-          if (e.target !== this) return;
-          if (Object.keys(wizardPatch).length && !confirm("有未保存的改动，确定退出向导？")) return;
-          closeWizard();
+        // F23：仅「退出」按钮 + Esc 可关闭，遮罩点击不关闭
+        document.getElementById("wizExit").addEventListener("click", tryCloseWizard);
+        // Esc 键关闭向导（同样走未保存确认）
+        document.addEventListener("keydown", function (e) {
+          if (e.key !== "Escape") return;
+          var overlay = document.getElementById("wizardOverlay");
+          if (!overlay || !overlay.classList.contains("show")) return;
+          tryCloseWizard();
         });
 
         // DRY_RUN toggle
@@ -1441,22 +1981,41 @@
           }).finally(function () { document.getElementById("dryToggle").disabled = false; });
         });
 
-        // 配置保存：POST 响应仅 {updated:N}，不回填表单；保留当前编辑值 + toast 提示
+        // 配置保存（F22 健壮版）：collectDirty 不抛错；POST 仅送合法 patch，errors 标红
         document.getElementById("cfgSave").addEventListener("click", function () {
           var msg = document.getElementById("cfgMsg");
-          var patch;
-          try { patch = collectDirty(); }
-          catch (e) { msg.textContent = "错误: " + e.message; msg.style.color = "var(--err)"; toast(e.message, "err"); return; }
-          if (!patch) { msg.textContent = "无修改"; msg.style.color = "var(--muted)"; return; }
+          var result = collectDirty();   // {patch, errors} 或 null
+          if (!result) { msg.textContent = "无修改"; msg.style.color = "var(--muted)"; return; }
+          if (!Object.keys(result.patch).length) {
+            // 仅 errors：标红 + 提示，不发起请求
+            if (result.errors.length) {
+              result.errors.forEach(function (e) { markFieldInvalid(e.key, e.label + " " + e.msg); });
+              msg.textContent = result.errors.length + " 项校验失败"; msg.style.color = "var(--err)";
+              toast(result.errors.length + " 项保存失败", "err");
+            } else {
+              msg.textContent = "无修改"; msg.style.color = "var(--muted)";
+            }
+            return;
+          }
+          var patch = result.patch;
           this.disabled = true;
           msg.textContent = "保存中…"; msg.style.color = "var(--muted)";
           var self = this;
           callApi(bridge.apiPost("prosocial/config", patch)).then(function (d) {
-            clearDirty();                              // 清除 dirty 标记，保留当前编辑值
-            Object.keys(patch).forEach(function (k) { loadedConfig[k] = patch[k]; }); // 更新脏字段判定基线
+            // 清除合法字段的 dirty + invalid
+            Object.keys(patch).forEach(function (k) {
+              var el = document.getElementById("cfg_" + k);
+              if (el) el.classList.remove("dirty");
+              clearFieldInvalid(k);
+              loadedConfig[k] = patch[k];
+            });
             var n = (d && typeof d.updated === "number") ? d.updated : Object.keys(patch).length;
             msg.textContent = "已保存 " + n + " 项"; msg.style.color = "var(--ok)";
             toast("已保存 " + n + " 项", "ok");
+            // 后端范围校验失败仍返回首个错误时，errors 也标红
+            if (result.errors.length) {
+              result.errors.forEach(function (e) { markFieldInvalid(e.key, e.label + " " + e.msg); });
+            }
           }).catch(function (e) {
             msg.textContent = "保存失败: " + e.message; msg.style.color = "var(--err)";
             toast("保存失败: " + e.message, "err");
@@ -1519,16 +2078,21 @@
         bridge.ready().then(function () {
           buildConfigTabs();
           bindEvents();
+          loadProviders();   // F18：加载 provider 列表（异步，下拉在 loadConfig 后填充）
           loadStatus();
           loadDecisions();
           loadConfig();
           loadGroups();
+          initTab();         // F19：恢复保存的 tab，触发对应面板加载
           pollTimer = setInterval(pollOnce, POLL_MS);
         }).catch(function (e) {
           showErr("bridge 初始化失败: " + (e && e.message ? e.message : e));
         });
       }
-      window.addEventListener("beforeunload", function () { if (pollTimer) clearInterval(pollTimer); });
+      window.addEventListener("beforeunload", function () {
+        if (pollTimer) clearInterval(pollTimer);
+        flushAutoSave();   // F21：离开页面前立即保存（不等防抖）
+      });
       start();
     </script>
   </body>

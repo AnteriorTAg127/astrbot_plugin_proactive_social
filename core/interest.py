@@ -161,11 +161,37 @@ class InterestManager:
         self._npz_path = data_dir / "interests.npz"
         self.log = log_fn
         self._data: InterestData | None = None
+        # 人工过滤列表（F20）：examples 是 [{label,text}]，keywords 是 [text]。
+        # main.py 启动时从 KV "interest_rejected" 加载，regenerate/apply_rejected 据此排除。
+        self._rejected: dict[str, list] = {"examples": [], "keywords": []}
         # 确保持久化目录存在（不存在则创建，失败仅 log 不抛）
         try:
             data_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             self.log("error", f"[ProSocial] interest.py: 创建目录失败 {data_dir}: {e}")
+
+    # ------------------------------------------------------------------ #
+    # 人工过滤（F20）：rejected 列表管理
+    # ------------------------------------------------------------------ #
+    def set_rejected(self, rejected: dict) -> None:
+        """从 KV 加载后调用，设置 rejected 列表。
+
+        容错：非 dict / 缺字段时回退为空结构，不抛异常。
+        """
+        if isinstance(rejected, dict):
+            self._rejected = {
+                "examples": list(rejected.get("examples", []) or []),
+                "keywords": list(rejected.get("keywords", []) or []),
+            }
+        else:
+            self._rejected = {"examples": [], "keywords": []}
+
+    def get_rejected(self) -> dict:
+        """返回当前 rejected 列表（浅拷贝，外部修改不污染内部）。"""
+        return {
+            "examples": list(self._rejected.get("examples", [])),
+            "keywords": list(self._rejected.get("keywords", [])),
+        }
 
     async def ensure_loaded(
         self,
@@ -239,40 +265,17 @@ class InterestManager:
         # 2. 解析为 InterestItem 列表
         items = _build_items_from_payload(payload, self.log)
 
-        # 3. 收集所有 examples 并按 level 分组
-        level_examples: dict[str, list[str]] = {lv.value: [] for lv in _LEVEL_ORDER}
-        all_examples: list[str] = []
-        for it in items:
-            for ex in it.examples:
-                if ex:
-                    level_examples[it.level.value].append(ex)
-                    all_examples.append(ex)
+        # 2.5 关键词（确保是字符串列表）
+        high_kw = [
+            str(x) for x in payload.get("high_interest_keywords", []) if x is not None
+        ]
+        hate_kw = [str(x) for x in payload.get("hate_keywords", []) if x is not None]
 
-        # 4. 批量嵌入（1 次）
-        embeddings: list[list[float]] = []
-        if all_examples:
-            try:
-                embeddings = await embed_fn(all_examples)
-            except Exception as e:
-                self.log("warning", f"[ProSocial] interest.py: 批量嵌入失败: {e}")
-                embeddings = []
-        dim = len(embeddings[0]) if embeddings else 0
+        # 2.6 过滤 rejected（regenerate 也排除已 rejected 的项，换人设重生成时不回来）
+        items, high_kw, hate_kw = self._filter_rejected(items, high_kw, hate_kw)
 
-        # 5. 按级别分组求均值质心（按 all_examples 拼装顺序切片）
-        centroids: dict[str, list[float]] = {}
-        idx = 0
-        for lv in _LEVEL_ORDER:
-            ex_list = level_examples[lv.value]
-            if not ex_list or dim == 0:
-                continue
-            count = len(ex_list)
-            slice_emb = embeddings[idx : idx + count]
-            idx += count
-            if not slice_emb:
-                continue
-            arr = np.asarray(slice_emb, dtype=np.float64)
-            centroid = arr.mean(axis=0)
-            centroids[lv.value] = [float(x) for x in centroid.tolist()]
+        # 3-5. 计算质心（复用 _recompute_centroids）
+        centroids, dim = await self._recompute_centroids(items, embed_fn)
 
         # 6. 构造 weights dict（每级别取其第一个 item 的 weight，无则用默认）
         weights: dict[str, float] = {}
@@ -283,13 +286,7 @@ class InterestManager:
             else:
                 weights[lv.value] = _LEVEL_DEFAULT_WEIGHT[lv.value]
 
-        # 7. 关键词（确保是字符串列表）
-        high_kw = [
-            str(x) for x in payload.get("high_interest_keywords", []) if x is not None
-        ]
-        hate_kw = [str(x) for x in payload.get("hate_keywords", []) if x is not None]
-
-        # 8. 构造 InterestData
+        # 7. 构造 InterestData
         data = InterestData(
             centroids=centroids,
             weights=weights,
@@ -300,7 +297,7 @@ class InterestManager:
             dim=dim,
         )
 
-        # 9. 持久化（失败仅 log，不影响内存数据返回）
+        # 8. 持久化（失败仅 log，不影响内存数据返回）
         try:
             self._save_npz(data)
         except Exception as e:
@@ -356,8 +353,183 @@ class InterestManager:
         }
 
     # ------------------------------------------------------------------ #
+    # 人工过滤（F20）：export_view / reject / apply_rejected
+    # ------------------------------------------------------------------ #
+    def export_view(self) -> dict:
+        """返回纯文本兴趣数据（不含向量/质心），供前端 Tab4 展示。
+
+        结构：
+          generated             : 是否已生成（self._data 非 None）
+          persona_hash          : 人设哈希
+          items                 : [{label,topic,examples,weight}]，4 级
+          hate_keywords         : 反感关键词
+          high_interest_keywords: 高唤醒关键词
+          rejected              : 人工过滤列表 {examples:[{label,text}], keywords:[text]}
+        """
+        data = self._data
+        if data is None:
+            return {
+                "generated": False,
+                "persona_hash": "",
+                "items": [],
+                "hate_keywords": [],
+                "high_interest_keywords": [],
+                "rejected": self.get_rejected(),
+            }
+        items_view = [
+            {
+                "label": it.level.value,
+                "topic": it.topic,
+                "examples": list(it.examples),
+                "weight": float(it.weight),
+            }
+            for it in data.items
+        ]
+        return {
+            "generated": True,
+            "persona_hash": data.persona_hash,
+            "items": items_view,
+            "hate_keywords": list(data.hate_keywords),
+            "high_interest_keywords": list(data.high_interest_keywords),
+            "rejected": self.get_rejected(),
+        }
+
+    def reject(self, kind: str, label: str = "", text: str = "") -> None:
+        """加入 rejected 列表，不立即重算质心（前端点「应用过滤」才重算）。
+
+        kind=="example" : 按 (label, text) 去重加入 examples
+        kind=="keyword" : 按 text 去重加入 keywords
+        非法 kind 静默忽略（不抛异常，前端已校验）。
+        """
+        if kind == "example":
+            existing = {
+                (e.get("label", ""), e.get("text", ""))
+                for e in self._rejected.get("examples", [])
+                if isinstance(e, dict)
+            }
+            if (label, text) not in existing:
+                self._rejected["examples"].append({"label": label, "text": text})
+        elif kind == "keyword":
+            if text and text not in self._rejected["keywords"]:
+                self._rejected["keywords"].append(text)
+
+    async def apply_rejected(
+        self,
+        embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+    ) -> tuple[bool, str]:
+        """从当前 items/keywords 移除 rejected 项，重新批量嵌入重算质心。
+
+        - self._data 为 None → (False, "尚未生成兴趣数据")
+        - 成功 → (True, "")，更新 self._data 并 _save_npz 持久化
+        - 异常 → (False, str(e))，不修改 self._data
+        """
+        if self._data is None:
+            return False, "尚未生成兴趣数据"
+        try:
+            data = self._data
+            filtered_items, filtered_high_kw, filtered_hate_kw = self._filter_rejected(
+                data.items, data.high_interest_keywords, data.hate_keywords
+            )
+            # 重算质心（复用 regenerate 的批量嵌入 + 均值逻辑）
+            centroids, dim = await self._recompute_centroids(filtered_items, embed_fn)
+            # 更新 self._data（原地修改，保持引用一致）
+            data.items = filtered_items
+            data.high_interest_keywords = filtered_high_kw
+            data.hate_keywords = filtered_hate_kw
+            data.centroids = centroids
+            data.dim = dim
+            # 持久化
+            self._save_npz(data)
+            self.log(
+                "info",
+                f"[ProSocial] interest.py: apply_rejected 完成 "
+                f"(items={len(filtered_items)}, dim={dim})",
+            )
+            return True, ""
+        except Exception as e:
+            self.log("warning", f"[ProSocial] interest.py: apply_rejected 失败: {e}")
+            return False, str(e)
+
+    # ------------------------------------------------------------------ #
     # 内部辅助方法
     # ------------------------------------------------------------------ #
+
+    async def _recompute_centroids(
+        self,
+        items: list[InterestItem],
+        embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+    ) -> tuple[dict[str, list[float]], int]:
+        """按级别收集 examples → 1 次批量嵌入 → 求均值质心。
+
+        regenerate 与 apply_rejected 共用此逻辑。
+        返回 (centroids, dim)；嵌入失败时 centroids 为空 dict、dim 为 0。
+        """
+        level_examples: dict[str, list[str]] = {lv.value: [] for lv in _LEVEL_ORDER}
+        all_examples: list[str] = []
+        for it in items:
+            for ex in it.examples:
+                if ex:
+                    level_examples[it.level.value].append(ex)
+                    all_examples.append(ex)
+
+        embeddings: list[list[float]] = []
+        if all_examples:
+            try:
+                embeddings = await embed_fn(all_examples)
+            except Exception as e:
+                self.log("warning", f"[ProSocial] interest.py: 批量嵌入失败: {e}")
+                embeddings = []
+        dim = len(embeddings[0]) if embeddings else 0
+
+        centroids: dict[str, list[float]] = {}
+        idx = 0
+        for lv in _LEVEL_ORDER:
+            ex_list = level_examples[lv.value]
+            if not ex_list or dim == 0:
+                continue
+            count = len(ex_list)
+            slice_emb = embeddings[idx : idx + count]
+            idx += count
+            if not slice_emb:
+                continue
+            arr = np.asarray(slice_emb, dtype=np.float64)
+            centroid = arr.mean(axis=0)
+            centroids[lv.value] = [float(x) for x in centroid.tolist()]
+        return centroids, dim
+
+    def _filter_rejected(
+        self,
+        items: list[InterestItem],
+        high_kw: list[str],
+        hate_kw: list[str],
+    ) -> tuple[list[InterestItem], list[str], list[str]]:
+        """从 items/keywords 中移除 rejected 项。
+
+        examples 按 (label, text) 匹配移除；keywords 按 text 精确匹配移除。
+        返回 (filtered_items, filtered_high_kw, filtered_hate_kw)。
+        """
+        rejected_examples = {
+            (e.get("label", ""), e.get("text", ""))
+            for e in self._rejected.get("examples", [])
+            if isinstance(e, dict)
+        }
+        rejected_keywords = set(self._rejected.get("keywords", []))
+        filtered_items = [
+            InterestItem(
+                level=it.level,
+                topic=it.topic,
+                examples=[
+                    ex
+                    for ex in it.examples
+                    if (it.level.value, ex) not in rejected_examples
+                ],
+                weight=it.weight,
+            )
+            for it in items
+        ]
+        filtered_high_kw = [k for k in high_kw if k not in rejected_keywords]
+        filtered_hate_kw = [k for k in hate_kw if k not in rejected_keywords]
+        return filtered_items, filtered_high_kw, filtered_hate_kw
 
     @staticmethod
     def _effective_persona(persona_text: str) -> str:

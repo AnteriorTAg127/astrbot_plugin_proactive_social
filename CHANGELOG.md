@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.2] - 2026-07-23
+
+### Added
+- **Embedding 模型选择器**（F18）：新增 `GET prosocial/providers` API，Dashboard 的 embedding_provider_id 改为动态下拉（拉取已配置 embedding provider）
+- **兴趣关键词展示与人工过滤**（F20）：新增 `GET/POST prosocial/interests` API，Dashboard 新增「兴趣关键词」tab，4 级展示 LLM 生成的 topic/examples/keywords，支持删除（reject 持久化 KV）与应用过滤（重算质心）
+- **Dashboard 顶层标签页重组**（F19）：单页网格改为 5 顶层 tab（概览/决策记录/群管理/兴趣关键词/配置），记忆选择，按 tab 轮询
+- **防抖自动保存**（F21）：配置改动后 3 秒自动提交 dirty 字段（delta），切 tab/关页立即保存
+- 32 项 v0.2.2 单元测试（InterestManager export/reject/apply/regenerate + 3 新 Web API）
+
+### Fixed
+- **大提交健壮性**（F22）：collectDirty 逐字段 try/catch，合法字段单独保存，非法字段红框不阻塞 + inline 校验（根因：int/float 空值→NaN→throw 连锁阻塞整批）
+- **向导误关**（F23）：遮罩点击不再关闭向导，仅退出按钮/Esc 可关，有未保存改动需确认
+
 ## [0.2.1] - 2026-07-23
 
 ### Changed

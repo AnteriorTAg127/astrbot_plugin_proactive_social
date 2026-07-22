@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from pathlib import Path
 
@@ -153,12 +154,23 @@ class ProSocialPlugin(Star):
         scheduler 已在 initialize 中启动（用默认配置），load 后缓存更新，
         scheduler 下次读 _config_getter 自动用新值（热更新，无需重启）。
         KV 异常/损坏 JSON 时保持默认，不崩溃插件。
+
+        同时加载兴趣人工过滤列表（F20）：interest_mgr 在 __init__ 已创建，
+        从 KV "interest_rejected" 加载后注入，regenerate/apply_rejected 据此排除。
         """
         try:
             await self._config_store.load(self.get_kv_data)
             self._log("info", "KV 配置已加载")
         except Exception as e:
             self._log("warning", f"加载 KV 配置失败，使用默认值: {e}")
+        # 加载兴趣 rejected 列表（F20）
+        try:
+            raw = await self.get_kv_data("interest_rejected")
+            if raw:
+                self.interest_mgr.set_rejected(json.loads(raw))
+                self._log("info", "兴趣 rejected 列表已加载")
+        except Exception as e:
+            self._log("warning", f"加载兴趣 rejected 列表失败: {e}")
 
     async def _kv_get(self, key: str, default=None):
         """KV 读取回调，包 self.get_kv_data（async）。"""
@@ -717,6 +729,86 @@ class ProSocialPlugin(Star):
                         return False, f"group_toggles[{gid}] 必须是布尔值"
                     await self.scheduler.set_group_enabled(str(gid), enabled)
         return True, ""
+
+    # --- F18/F20 WebBridge 扩展接口 ---
+
+    def get_providers_view(self) -> dict:
+        """返回已配置的 chat / embedding provider id 列表（F18 Embedding 选择器）。
+
+        AstrBot 源码确认（context.py / manager.py）：
+        - ``get_all_providers()`` 返回 ``provider_manager.provider_insts``，
+          仅含 chat completion 类（``Provider`` 子类，CHAT_COMPLETION 类型）。
+        - ``get_all_embedding_providers()`` 返回
+          ``provider_manager.embedding_provider_insts``，仅含 ``EmbeddingProvider`` 子类。
+        两者在 ``ProviderManager.load_provider`` 中按 ``provider_metadata.provider_type``
+        分桶注册，无需再在插件侧 isinstance 判定。provider id 取 ``meta().id``。
+        """
+        chat_ids: list[str] = []
+        embed_ids: list[str] = []
+        try:
+            for p in self.context.get_all_providers():
+                try:
+                    pid = p.meta().id
+                except Exception:
+                    pid = ""
+                if pid:
+                    chat_ids.append(pid)
+            for p in self.context.get_all_embedding_providers():
+                try:
+                    pid = p.meta().id
+                except Exception:
+                    pid = ""
+                if pid:
+                    embed_ids.append(pid)
+        except Exception as e:
+            logger.warning(f"[ProSocial] 获取 provider 列表失败: {e}")
+        return {"chat": chat_ids, "embedding": embed_ids}
+
+    def get_interests_view(self) -> dict:
+        """返回兴趣数据纯文本视图（F20）。未生成时返回 generated=False 空结构。"""
+        if self.interest_mgr is None:
+            return {
+                "generated": False,
+                "persona_hash": "",
+                "items": [],
+                "hate_keywords": [],
+                "high_interest_keywords": [],
+                "rejected": {"examples": [], "keywords": []},
+            }
+        return self.interest_mgr.export_view()
+
+    async def set_interests_view(self, body: dict) -> tuple[bool, str]:
+        """处理兴趣人工过滤操作（F20）。
+
+        body.action == "reject" : 加 rejected 项并持久化到 KV "interest_rejected"
+        body.action == "apply"  : 调 apply_rejected 重算质心
+        """
+        if not isinstance(body, dict):
+            return False, "请求体必须是 JSON 对象"
+        action = body.get("action")
+        if action == "reject":
+            kind = body.get("kind")
+            if kind not in ("example", "keyword"):
+                return False, "kind 必须是 example 或 keyword"
+            self.interest_mgr.reject(
+                kind=kind,
+                label=str(body.get("label", "") or ""),
+                text=str(body.get("text", "") or ""),
+            )
+            try:
+                await self.put_kv_data(
+                    "interest_rejected",
+                    json.dumps(self.interest_mgr.get_rejected(), ensure_ascii=False),
+                )
+            except Exception as e:
+                self._log("warning", f"持久化 interest_rejected 失败: {e}")
+                return False, f"持久化失败: {e}"
+            return True, ""
+        if action == "apply":
+            embed_fn = self._make_embed_fn()
+            ok, msg = await self.interest_mgr.apply_rejected(embed_fn)
+            return ok, msg
+        return False, "未知 action"
 
     # ------------------------------------------------------------------ #
     # 指令输出格式化

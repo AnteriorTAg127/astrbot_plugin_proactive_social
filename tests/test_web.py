@@ -22,6 +22,7 @@ from core.web import build_handlers
 # MockBridge
 # ---------------------------------------------------------------------- #
 
+
 class _MockBridge:
     """实现 WebBridge 鸭子接口的 mock，行为可配置。"""
 
@@ -34,6 +35,18 @@ class _MockBridge:
         self.groups_patch_result: tuple[bool, str] = (True, "")
         self.last_config_patch: dict | None = None
         self.last_groups_patch: dict | None = None
+        # F18/F20 扩展
+        self.providers_data: dict = {"chat": ["chat1"], "embedding": ["emb1"]}
+        self.interests_data: dict = {
+            "generated": True,
+            "persona_hash": "h",
+            "items": [],
+            "hate_keywords": [],
+            "high_interest_keywords": [],
+            "rejected": {"examples": [], "keywords": []},
+        }
+        self.interests_patch_result: tuple[bool, str] = (True, "")
+        self.last_interests_patch: dict | None = None
 
     def get_status(self) -> dict:
         return self.status_data
@@ -55,6 +68,16 @@ class _MockBridge:
         self.last_groups_patch = patch
         return self.groups_patch_result
 
+    def get_providers_view(self) -> dict:
+        return self.providers_data
+
+    def get_interests_view(self) -> dict:
+        return self.interests_data
+
+    async def set_interests_view(self, body: dict) -> tuple[bool, str]:
+        self.last_interests_patch = body
+        return self.interests_patch_result
+
 
 def _run(handler, params=None, body=None):
     """asyncio.run 包装调用 handler，返回 (status, json)。"""
@@ -64,6 +87,7 @@ def _run(handler, params=None, body=None):
 # ---------------------------------------------------------------------- #
 # GET /prosocial/status
 # ---------------------------------------------------------------------- #
+
 
 def test_web_get_status_ok():
     bridge = _MockBridge()
@@ -81,6 +105,7 @@ def test_web_get_status_bridge_exception_500():
 
     def raise_fn():
         raise RuntimeError("boom")
+
     bridge.get_status = raise_fn
     h = build_handlers(bridge)["GET /prosocial/status"]
     status, body = _run(h)
@@ -92,6 +117,7 @@ def test_web_get_status_bridge_exception_500():
 # ---------------------------------------------------------------------- #
 # GET /prosocial/decisions
 # ---------------------------------------------------------------------- #
+
 
 def test_web_get_decisions_default_limit():
     bridge = _MockBridge()
@@ -144,6 +170,7 @@ def test_web_get_decisions_clamp_high():
 # ---------------------------------------------------------------------- #
 # POST /prosocial/dryrun
 # ---------------------------------------------------------------------- #
+
 
 def test_web_post_dryrun_true():
     bridge = _MockBridge()
@@ -213,6 +240,7 @@ def test_web_post_dryrun_bridge_rejects():
 # GET /prosocial/config
 # ---------------------------------------------------------------------- #
 
+
 def test_web_get_config_ok():
     bridge = _MockBridge()
     h = build_handlers(bridge)["GET /prosocial/config"]
@@ -224,6 +252,7 @@ def test_web_get_config_ok():
 # ---------------------------------------------------------------------- #
 # POST /prosocial/config
 # ---------------------------------------------------------------------- #
+
 
 def test_web_post_config_valid_patch():
     bridge = _MockBridge()
@@ -265,6 +294,7 @@ def test_web_post_config_none_body_rejected():
 # GET /prosocial/groups
 # ---------------------------------------------------------------------- #
 
+
 def test_web_get_groups_ok():
     bridge = _MockBridge()
     h = build_handlers(bridge)["GET /prosocial/groups"]
@@ -276,6 +306,7 @@ def test_web_get_groups_ok():
 # ---------------------------------------------------------------------- #
 # POST /prosocial/groups
 # ---------------------------------------------------------------------- #
+
 
 def test_web_post_groups_valid_patch():
     bridge = _MockBridge()
@@ -312,11 +343,12 @@ def test_web_post_groups_none_body_rejected():
 
 
 # ---------------------------------------------------------------------- #
-# 全部 7 handler 存在
+# 全部 10 handler 存在
 # ---------------------------------------------------------------------- #
 
-def test_web_build_handlers_returns_seven():
-    """build_handlers 返回恰好 7 个 handler。"""
+
+def test_web_build_handlers_returns_ten():
+    """build_handlers 返回恰好 10 个 handler（v0.2.2 新增 providers/interests GET/POST）。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     expected = {
@@ -327,13 +359,16 @@ def test_web_build_handlers_returns_seven():
         "POST /prosocial/config",
         "GET /prosocial/groups",
         "POST /prosocial/groups",
+        "GET /prosocial/providers",
+        "GET /prosocial/interests",
+        "POST /prosocial/interests",
     }
     assert set(handlers.keys()) == expected
-    assert len(handlers) == 7
+    assert len(handlers) == 10
 
 
 def test_web_all_handlers_async_callable():
-    """7 个 handler 都是 async 可调用。"""
+    """10 个 handler 都是 async 可调用。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     for key, h in handlers.items():
