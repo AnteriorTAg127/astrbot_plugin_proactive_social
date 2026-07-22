@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# 开发过程文件（含 API 联调凭据等敏感信息，严禁提交）
+开发/
+开发/api_config.json
+
+# CodeGraph 索引（生成的二进制数据库，勿提交）
+.codegraph/
+
+# 通用开发指南（非插件运行时产物）
+CLAUDE.md
