@@ -180,8 +180,9 @@
         background: var(--bg-elev); cursor: help;
       }
       .panel h2 .autotune-status .status-dot {
-        width: 7px; height: 7px; border-radius: 50%;
+        width: 7px; height: 7px; min-width: 7px; border-radius: 50%;
         background: var(--subtle);   /* 默认灰（未知）*/
+        display: inline-block; flex-shrink: 0; overflow: hidden;
       }
       .panel h2 .autotune-status .status-dot.on {
         background: var(--ok); box-shadow: 0 0 0 2px var(--ok-soft);
@@ -190,6 +191,9 @@
         background: var(--err); box-shadow: 0 0 0 2px var(--err-soft);
       }
       .panel h2 .autotune-status .status-label { letter-spacing: 0; text-transform: none; }
+      .panel h2 .autotune-status .status-label b { font-weight: 600; font-variant-numeric: tabular-nums; }
+      .panel h2 .autotune-status .status-label b.on { color: var(--ok); }
+      .panel h2 .autotune-status .status-label b.off { color: var(--err); }
       .span-3 { grid-column: span 3; }
       .span-4 { grid-column: span 4; }
       .span-5 { grid-column: span 5; }
@@ -748,13 +752,12 @@
         <div class="panel-grid">
           <!-- 0. LLM 诊断调参（F3 / v0.2.9 T7 增强）-->
           <section class="panel span-12" id="panel-autotune">
-            <h2><span class="title">LLM 诊断调参</span>
+            <h2>
+              <span class="title">LLM 诊断调参</span>
               <span class="autotune-status" id="autotuneAutoTriggerIndicator" title="自动触发开关：触发率越界时自动调 LLM 重写参数（读 autotune_auto_trigger_enabled 配置）">
-                <span class="status-dot" id="autotuneAutoTriggerDot">—</span>
-                <span class="status-label">自动触发</span>
+                <span class="status-dot" id="autotuneAutoTriggerDot"></span>
+                <span class="status-label">自动触发 · <b id="autotuneAutoTriggerText">—</b></span>
               </span>
-              <button class="btn" id="autotuneBtn" style="margin-left:auto;">🤖 LLM 诊断调参</button>
-              <button class="btn ghost" id="autotuneForceBtn" title="跳过速率限制强制分析（仍计入配额，ADMIN 用）">⚡ 强制分析</button>
             </h2>
             <div class="meta" style="font-size:11px;color:var(--muted);margin-top:4px;">
               基于最近决策数据由 LLM 分析并给出参数建议（v0.2.9 全视野：标量/关键词/人设三段），弹窗中查看分析、建议与速率限制状态，确认后一键应用。
@@ -780,6 +783,10 @@
                 </label>
                 <span style="font-size:10px;color:var(--subtle);">关闭=仅缓存，手动确认；开启=自动 apply（谨慎）</span>
               </div>
+            </div>
+            <div class="actions-row" style="margin-top:12px;">
+              <button class="btn ghost" id="autotuneForceBtn" title="跳过速率限制强制分析（仍计入配额，ADMIN 用）">⚡ 强制分析</button>
+              <button class="btn" id="autotuneBtn">🤖 LLM 诊断调参</button>
             </div>
             <details style="margin-top:8px;">
               <summary style="cursor:pointer;font-size:12px;color:var(--muted);user-select:none;">📖 工作机制说明（点击展开）</summary>
@@ -1938,16 +1945,17 @@
       // v0.2.9 T7.4：更新自动触发状态指示灯（读 autotune_auto_trigger_enabled）
       function updateAutoTriggerIndicator(enabled) {
         var dot = document.getElementById("autotuneAutoTriggerDot");
-        if (!dot) return;
-        dot.classList.remove("on", "off");
-        if (enabled === true) {
-          dot.classList.add("on");
-          dot.textContent = "ON";
-        } else if (enabled === false) {
-          dot.classList.add("off");
-          dot.textContent = "OFF";
-        } else {
-          dot.textContent = "—";
+        var txt = document.getElementById("autotuneAutoTriggerText");
+        if (dot) {
+          dot.classList.remove("on", "off");
+          if (enabled === true) dot.classList.add("on");
+          else if (enabled === false) dot.classList.add("off");
+        }
+        if (txt) {
+          txt.classList.remove("on", "off");
+          if (enabled === true) { txt.textContent = "ON"; txt.classList.add("on"); }
+          else if (enabled === false) { txt.textContent = "OFF"; txt.classList.add("off"); }
+          else { txt.textContent = "—"; }
         }
       }
 
