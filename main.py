@@ -633,7 +633,7 @@ class ProSocialPlugin(Star):
         ok, msg = await self._config_store.set_many(patch)
         if not ok:
             return False, msg
-        # F4: 人设变更触发兴趣重新生成
+        # F4: 人设变更触发兴趣重新生成（后台执行，不阻塞 API 响应）
         if any(k in patch for k in ("persona_text", "persona_knowledge")):
             try:
                 new_cfg = self._config_getter()
@@ -641,17 +641,27 @@ class ProSocialPlugin(Star):
                 persona_knowledge = str(new_cfg.get("persona_knowledge", ""))
                 example_count = int(new_cfg.get("interest_example_count", 3))
                 keyword_count = int(new_cfg.get("interest_keyword_count", 12))
-                await self.interest_mgr.regenerate(
-                    persona_text,
-                    persona_knowledge,
-                    self._llm_fn,
-                    self._embed_fn,
-                    example_count=example_count,
-                    keyword_count=keyword_count,
-                )
-                self._log("info", "人设变更，兴趣数据已重新生成")
+                llm_fn = self._llm_fn
+                embed_fn = self._embed_fn
+                log_fn = self._log
+
+                async def _bg_regenerate():
+                    try:
+                        await self.interest_mgr.regenerate(
+                            persona_text,
+                            persona_knowledge,
+                            llm_fn,
+                            embed_fn,
+                            example_count=example_count,
+                            keyword_count=keyword_count,
+                        )
+                        log_fn("info", "人设变更，兴趣数据已重新生成")
+                    except Exception as exc:
+                        log_fn("warning", f"人设变更后兴趣重建失败: {exc}")
+
+                asyncio.create_task(_bg_regenerate())
             except Exception as e:
-                self._log("warning", f"人设变更后兴趣重建失败: {e}")
+                self._log("warning", f"启动兴趣重建后台任务失败: {e}")
         return True, ""
 
     def get_groups_view(self) -> dict:

@@ -1,14 +1,15 @@
 {
   "chat_provider_id": {
-    "description": "主动生成用聊天模型；留空 = 用该群会话当前聊天模型",
+    "description": "聊天模型",
     "type": "string",
     "default": "",
+    "hint": "主动生成用聊天模型；留空则使用群会话当前聊天模型",
     "_special": "select_provider"
   },
   "embedding_provider_id": {
-    "description": "主动生成用嵌入模型；留空 = 自动选择第一个可用的 Embedding Provider",
+    "description": "嵌入模型 ID",
     "type": "string",
     "default": "",
-    "_special": "select_provider"
+    "hint": "主动生成用 Embedding Provider 的 ID；留空则自动选择第一个可用的 Embedding Provider。可在 Dashboard「导出」中查看已配置的 Embedding Provider ID"
   }
 }
