@@ -220,3 +220,6 @@ __marimo__/
 
 # 通用开发指南（非插件运行时产物）
 CLAUDE.md
+
+# 插件运行时数据目录（AstrBot 框架自动生成：cmd_config.json + t2i_templates + temp，非版本控制对象）
+data/

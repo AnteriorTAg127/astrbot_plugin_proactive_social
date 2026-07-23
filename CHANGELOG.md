@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.2.9] - 2026-07-24
+
+### Added
+- **LLM 调参速率限制器**（F4，`core/tune_controller.py` 新建 `TuneRateLimiter`）：纯标准库 deque 实现，对所有 `llm_autotune` 调用（手动 + 自动）施加冷却（`autotune_cooldown_hours`，默认 3 小时）与日上限（`autotune_max_per_day`，默认 4 次）双重限制。冷却未到 → `reason="cooldown"`；已达日上限 → `reason="daily_cap"`；`cooldown=0` 或 `max_per_day=0` 表示不限该维度。ADMIN 可经 `force=True` 跳过限制但仍 `record()` 计入配额。状态持久化到 SQLite KV 键 `tune_rate_state`（v0.2.7 ConfigStore.get_kv/set_kv），插件重载后冷却与日上限计数连续。
+- **触发率越界自动调参**（F3，scheduler `_maybe_autotune`）：复用 `AdaptiveThreshold` 评估周期（每 EVAL_EVERY=20 样本一次），刚评估后读取窗口触发率（`adaptive.window_rate()`），当样本数 ≥ `autotune_min_decisions`（默认 30）且触发率 > `autotune_safe_rate_hi`（默认 0.30）或 < `autotune_safe_rate_lo`（默认 0.05）时，后台 `asyncio.create_task` 调用注入的 `autotune_trigger_fn`（main.py 提供，包装 `llm_autotune("analyze")`）。`autotune_auto_apply=true` 则成功后自动 apply。自动触发同样受 F4 速率限制约束。
+- **LLM 全视野调参**（F1，`_build_tune_prompt` 重写）：prompt 注入全量配置快照（`ConfigStore.snapshot()` 全部 ~75 项普通键减 DENYLIST + `chat_provider_id`/`embedding_provider_id` 解析为 provider 名称）+ 兴趣数据（`interest_mgr.export_view()`：items/hate_keywords/high_interest_keywords/rejected）+ 人设文本 `persona_text`/`persona_knowledge`（已在配置内，显式高亮）+ 作息 schedule + 群白名单（group_mode/group_whitelist）+ `AdaptiveThreshold` 的 mult 与窗口触发率。LLM 输出格式扩展为三段：`suggested_patch`（标量配置）/ `suggested_keywords_patch`（兴趣关键词增删建议）/ `persona_revision`（可选人设改写建议）。
+- **LLM 扩展可写键**（F2，denylist 模式）：用 `TUNE_DENYLIST = frozenset({"enable","dry_run","group_whitelist","group_mode","chat_provider_id","embedding_provider_id"})`（6 项操作/安全敏感键）替换 v0.2.8 的 18 项 `TUNE_WHITELIST`。可写键 = `set(DEFAULT_CONFIG) - TUNE_DENYLIST`（约 70 项，含 `persona_text`/`persona_knowledge`/`schedule`/各权重/疲劳/惯性/瞥眼/规则通道/回复关键词等）。LLM 输出含 DENYLIST 键时被丢弃并在 analysis 末尾注明 `[已过滤安全敏感键: ...]`。
+- **llm_autotune apply 分流**（F2）：`apply` 路径分流为四类——①标量配置键 → `ConfigStore.set_many`（沿用既有类型/范围校验器）；②patch 含 `persona_text`/`persona_knowledge`/`interest_example_count`/`interest_keyword_count` → 触发后台 `interest_mgr.regenerate()`（asyncio.create_task 不阻塞响应）；③`suggested_keywords_patch` → 经 `interest_mgr.add_item`/`remove_item`（复用 v0.2.6 F2 CRUD）+ `apply_rejected`（v0.2.2）重算质心；④`persona_revision` → 合并入 `persona_text` 走同路径。
+- **AdaptiveThreshold 扩展**（F3，`core/adaptive.py`）：`record(score, triggered)` 返回值由 `None` 改为 `bool`（True 表示本次调用触发了评估，即 `_since_eval` 归零）；新增 `window_rate() -> float`（返回当前窗口触发率，无样本返回 0.0）与 `window_size() -> int`。常量 HI_RATE/LO_RATE 保持 0.30/0.05 不变（与 v0.2.9 新增的 `autotune_safe_rate_*` 独立，前者管本地 mult，后者管 LLM 自动触发）。
+- **collect_tune_stats 扩展**（F1/F3，scheduler）：`config` 字段从子集改为全量配置快照（减 DENYLIST 由 main 过滤）；新增 `adaptive_summary` 字段（每群一项：`group_id`/`mult`/`window_rate`/`samples`）。
+- 7 项新配置项（全部非 null 默认）：`autotune_safe_rate_hi`(0.30) / `autotune_safe_rate_lo`(0.05) / `autotune_auto_trigger_enabled`(true) / `autotune_auto_apply`(false) / `autotune_min_decisions`(30) / `autotune_cooldown_hours`(3.0) / `autotune_max_per_day`(4)
+- 35 项 v0.2.9 单元测试（TuneRateLimiter 8 / AdaptiveThreshold 扩展 4 / TUNE_DENYLIST 3 / apply 分流 6 / 速率限制 5 / scheduler 自动触发集成 4 / prompt 全视野 3 / collect_tune_stats 扩展 2）；web post_autotune 10 项测试由 agent-f 在 test_web.py 实现
+
+### Changed
+- `main.py` `TUNE_WHITELIST`（18 项 frozenset）→ `TUNE_DENYLIST`（6 项 frozenset）；`_writable_keys` 类方法动态计算可写键集
+- `main.py` `llm_autotune` 签名扩展为 `llm_autotune(action, patch=None, *, style="", guidance="", force=False, keywords_patch=None, persona_revision=None) -> dict`；入口先经 `TuneRateLimiter.allow()`（`force=True` 跳过），被限返回 `{ok: False, error: "rate_limited", reason, retry_after/used/limit}`；成功后 `record()`
+- `main.py` 新增 `_tune_limiter` 单例（TuneRateLimiter），`initialize` 从 SQLite KV `tune_rate_state` 恢复状态，`terminate` 持久化
+- `main.py` `cmd_tune` 扩展：`/prosocial tune [style]`（受速率限制）/ `/prosocial tune apply` / `/prosocial tune force [style]`（ADMIN 跳过限制）/ `/prosocial tune status`（显示速率限制状态 + 上次建议摘要 + 自动触发开关）
+- `core/scheduler.py` `__init__` 新增 `autotune_trigger_fn: Callable[[], Awaitable[dict]] | None` 注入参数（默认 None，既有行为不变）；`run_batch` 在 `adaptive.record(...)` 返回 True 且 `autotune_auto_trigger_enabled=true` 时调 `_maybe_autotune`
+- `core/web.py` `WebBridge.run_autotune` 透传 `force`/`keywords_patch`/`persona_revision`；`post_autotune` handler 三字段类型前置校验；响应含 `rate_limit` 状态块
+- Dashboard autotune 面板增强：新增「自动触发」状态指示灯（绿/红圆点）+「⚡ 强制分析」按钮 +「自动应用建议」复选框；analysis 展示区新增「LLM 视野说明」折叠块；suggested_patch 表分三段（标量配置/关键词变更/人设改写）；新增「LLM 调参」配置分组（7 项控件）
+- Web API handler 总数保持 12（复用既有 autotune handler，仅扩展字段）
+- 插件版本 v0.2.8 → v0.2.9
+
+### Notes
+- LLM 调参建议经 DENYLIST 过滤 + ConfigStore 校验器 + interest_mgr 去重三重保护，DENYLIST 键被丢弃时 analysis 末尾注明
+- 自动触发同样受速率限制约束：触发条件满足但 `TuneRateLimiter.allow()` 返回 False 时不触发，写日志事件 `autotune_skipped: rate_limited`
+- `_install_astrbot_mocks()` 测试辅助：main.py 强依赖 astrbot 运行时无法离线 import，测试通过 sys.modules 注入最小化 mock（AstrBotConfig=dict / logger=MagicMock / filter=_FakeFilter / Star=基类 / register=透传装饰器等）+ 包内子模块加载方式，使 main.py 可被 import 测试
+
 ## [0.2.8] - 2026-07-23
 
 ### Fixed
