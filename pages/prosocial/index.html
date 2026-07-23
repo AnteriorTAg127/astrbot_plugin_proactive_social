@@ -282,7 +282,8 @@
       .ch-rule { color: var(--warn); }
       .ch-vector { color: #8b5cf6; }
       .score-good { color: var(--ok); font-weight: 600; }
-      .score-bad { color: var(--err); font-weight: 600; }
+	      .score-bad { color: var(--err); font-weight: 600; }
+	      .tag-degraded { color: var(--muted); font-style: italic; font-size: 10px; }
       .tag-dry { color: var(--warn); font-weight: 600; }
       .tag-trig { color: var(--ok); font-weight: 700; }
       .ellipsis { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -369,6 +370,24 @@
       .cfg-field select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
       .cfg-field select.dirty, .cfg-field textarea.dirty, .cfg-field input.dirty { border-color: var(--warn); }
       .cfg-field textarea.list-input { min-height: 70px; }
+
+	      /* F13 配置分组底部说明块 */
+	      .section-doc {
+	        margin-top: 16px;
+	        padding: 12px 14px;
+	        background: var(--card-2);
+	        border: 1px dashed var(--border-strong);
+	        border-radius: 8px;
+	        font-size: 12px;
+	        color: var(--muted);
+	        line-height: 1.6;
+	      }
+	      .section-doc .doc-title {
+	        font-weight: 600;
+	        color: var(--text);
+	        margin-bottom: 6px;
+	        font-size: 12px;
+	      }
 
       /* schedule 时段编辑器：增删行 */
       .sched-editor { display: flex; flex-direction: column; gap: 6px; }
@@ -523,11 +542,30 @@
         font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px;
       }
       .rejected-item {
-        display: inline-block; padding: 2px 8px; margin: 2px;
-        background: var(--card); border: 1px solid var(--border);
-        border-radius: 4px; font-size: 11px; color: var(--subtle);
-        text-decoration: line-through;
-      }
+	        display: inline-block; padding: 2px 8px; margin: 2px;
+	        background: var(--card); border: 1px solid var(--border);
+	        border-radius: 4px; font-size: 11px; color: var(--subtle);
+	        text-decoration: line-through;
+	      }
+
+	      /* F2 兴趣增删改查 */
+	      .add-row { display: flex; gap: 4px; margin-top: 4px; }
+	      .add-row .add-input { flex: 1; font-size: 12px; }
+	      .add-row .add-confirm { font-size: 11px; padding: 3px 8px; }
+	      .edit-btn {
+	        width: 22px; height: 22px; border-radius: 5px;
+	        border: 1px solid var(--border); background: transparent;
+	        color: var(--accent); cursor: pointer; font-size: 12px; line-height: 1;
+	        display: flex; align-items: center; justify-content: center;
+	        transition: background .15s;
+	      }
+	      .edit-btn:hover { background: var(--accent-soft); }
+	      .edit-input {
+	        flex: 1; padding: 3px 6px; border: 1px solid var(--accent); border-radius: 4px;
+	        background: var(--card-2); color: var(--text); font-size: 12px;
+	        font-family: var(--mono);
+	      }
+	      .edit-input:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
 
       /* ===== 配置字段无效状态（F22 inline 校验 + 保存错误标红）===== */
       .cfg-field.invalid input,
@@ -557,7 +595,7 @@
     <header>
       <div class="brand">
         <div class="logo">PS</div>
-        <h1>主动社交<span class="sub">任务控制台 v0.2</span></h1>
+        <h1>主动社交<span class="sub">任务控制台 v0.2.6</span></h1>
       </div>
       <span class="meta" id="lastRefresh">未刷新</span>
       <span id="errBanner"></span>
@@ -624,7 +662,7 @@
         <div class="panel-grid">
           <!-- 3. 决策记录 -->
           <section class="panel span-12" id="panel-decisions">
-            <h2><span class="dot live"></span><span class="title">决策记录</span><span class="meta" style="font-size:11px;color:var(--muted);margin-left:8px;" id="decCount"></span></h2>
+            <h2><span class="dot live"></span><span class="title">决策记录</span><span class="meta" style="font-size:11px;color:var(--muted);margin-left:8px;" id="decCount"></span><button class="btn ghost" id="exportBtn" style="margin-left:auto;">📥 导出 JSON</button></h2>
             <div class="decisions-wrap">
               <table id="decTable">
                 <thead>
@@ -783,13 +821,13 @@
 
       // ============ 默认配置（镜像 ConfigStore.DEFAULT_CONFIG，用于向导首启判定与改动汇总）============
       var DEFAULT_CONFIG = {
-        enable: true, dry_run: false, embedding_provider_id: "",
-        persona_text: "你是一个友善的群聊机器人。", persona_knowledge: "",
-        group_mode: "whitelist", group_whitelist: [],
-        short_window_size: 8, long_window_size: 20, long_window_top_n: 6, long_window_summarize: false,
-        base_threshold: 0.65, core_interest_modifier: 0.7, general_interest_modifier: 1.0, edge_interest_modifier: 1.3,
-        expecting_modifier: 0.8, personal_threshold: 0.55, hate_similarity_threshold: 0.75,
-        w_int: 1.0, w_topic: 0.4, w_resp: 0.8, w_cooldown: 0.5, w_silence: 0.2,
+        enable: true, dry_run: false,
+	        persona_text: "你是一个友善的群聊机器人。", persona_knowledge: "",
+	        group_mode: "whitelist", group_whitelist: [],
+	        short_window_size: 8, long_window_size: 20, long_window_top_n: 6, long_window_summarize: false,
+	        base_threshold: 0.55, core_interest_modifier: 0.7, general_interest_modifier: 1.0, edge_interest_modifier: 1.3,
+	        expecting_modifier: 0.8, personal_threshold: 0.55, hate_similarity_threshold: 0.75,
+	        w_int: 1.2, w_topic: 0.4, w_resp: 0.8, w_cooldown: 0.5, w_silence: 0.35,
         batch_interval_min: 2.0, batch_interval_max: 5.0, cooldown_messages: 4, expecting_duration: 30,
         personal_track_timeout: 30, track_irrelevant_msgs: 3,
         embedding_rate_limit_per_min: 30, buffer_max_size: 200, topic_turn_keywords: ["说正事", "别聊了", "换个话题", "停"],
@@ -804,11 +842,13 @@
         fatigue_recovery_rate: 0.1, fatigue_limit: 5.0, fatigue_cost_active: 1.2, fatigue_cost_passive: 0.8,
         fatigue_cost_track: 0.6, fatigue_cost_glance: 1.5, fatigue_high_modifier: 1.2, fatigue_medium_modifier: 1.1,
         fatigue_suppress_enabled: true,
-        after_reply_probability: 0.6, probability_duration: 30, wait_window_duration_ms: 3000,
+        after_reply_probability: 0.7, probability_duration: 30, wait_window_duration_ms: 3000,
         wait_window_max_extra: 3, proactive_temp_boost: 0.5, proactive_boost_duration: 60,
         // --- 回复关键词匹配（v0.2.5）---
         reply_keyword_enabled: true, reply_keyword_top_n: 5, reply_keyword_boost_factor: 0.25,
-        reply_keyword_ttl_seconds: 60, reply_keyword_min_score_to_trigger: 0.5, reply_keyword_early_clear_low_score: 0.1
+        reply_keyword_ttl_seconds: 60, reply_keyword_min_score_to_trigger: 0.5, reply_keyword_early_clear_low_score: 0.1,
+	        // --- v0.2.6 新增 ---
+	        interest_example_count: 3, interest_keyword_count: 12, long_window_inject_proactive: true
       };
 
       // ============ 配置字段定义（key 与后端 get_config_view 返回键一致）============
@@ -816,42 +856,43 @@
       // 共 77 项普通参数（chat_provider_id 不在面板，留主面板原生 select_provider）
       // hint 取自 _conf_schema.json 的 description / hint。min/max 取自 ConfigStore.VALIDATORS。
       var CONFIG_GROUPS = [
-        {
-          id: "basic", label: "基础设置",
-          fields: [
+	        {
+	          id: "basic", label: "基础设置", doc: "基础设置控制插件的核心行为。enable 是总开关，关闭后插件完全停止。dry_run 开启后决策流程正常执行但不发送消息，适合调试。人设描述(persona_text)决定机器人的兴趣方向与说话风格，修改后自动触发兴趣重建。",
+	          fields: [
             { key: "enable", label: "插件总开关", type: "bool", hint: "插件总开关" },
             { key: "dry_run", label: "DRY_RUN 干运行", type: "bool", hint: "开启后决策流程全部正常执行，但不生成、不发送消息" },
-            { key: "embedding_provider_id", label: "Embedding 提供商 ID", type: "select", dynamic: "embedding_providers", options: [{ value: "", label: "（自动，留空）" }], hint: "留空 = 用第一个可用的 Embedding Provider（选项来自 GET providers）" },
             { key: "persona_text", label: "人设描述", type: "text", full: true, hint: "人设自然语言描述（启动时据此生成兴趣分级，文本哈希变化会触发重建）" },
             { key: "persona_knowledge", label: "补充知识", type: "text", full: true, hint: "补充知识文档（可选，作为兴趣生成的额外上下文）" },
             { key: "group_mode", label: "群启用模式", type: "select", options: [{ value: "whitelist", label: "白名单模式" }, { value: "all", label: "全部群" }], hint: "whitelist 仅白名单内群启用；all 全部群启用" },
             { key: "group_whitelist", label: "群白名单", type: "list", full: true, hint: "群 ID 白名单（group_mode=whitelist 时生效）。每行一个群 ID" },
             { key: "replay_speed", label: "回放默认倍速", type: "float", min: 0.1, max: 100, step: 0.1, hint: "/prosocial replay 未指定倍速时使用" },
+            { key: "interest_example_count", label: "每级示例句子数", type: "int", min: 1, max: 10, hint: "LLM 生成兴趣时每个级别生成的示例句子数量（越多越精准，但消耗更多 token）" },
+            { key: "interest_keyword_count", label: "高唤醒关键词数", type: "int", min: 3, max: 30, hint: "LLM 生成的高唤醒关键词数量（影响规则通道匹配率）" },
           ]
         },
         {
-          id: "threshold", label: "阈值与权重",
-          fields: [
-            { key: "base_threshold", label: "基础阈值", type: "float", min: 0, max: 2, step: 0.01, hint: "T = base × 级别修正 × (期待 ? expecting_modifier : 1)；越大越保守" },
+          id: "threshold", label: "阈值与权重", doc: "唤醒阈值决定了机器人何时主动发言。基础阈值(base_threshold)越低，越容易触发。级别倍率(core/general/edge)对不同兴趣级别的群乘以不同系数：core 倍率越低越易触发，edge 倍率越高越难触发。五因子权重(w_*)控制各因素对总分的影响大小，权重越大该因素贡献越大。",
+	          fields: [
+            { key: "base_threshold", label: "基础唤醒阈值", type: "float", min: 0, max: 2, step: 0.01, hint: "触发门槛：T = base × 级别修正 × (期待?expecting_modifier:1)。越低越容易触发" },
             { key: "core_interest_modifier", label: "core 倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "核心兴趣阈值倍率（core 命中时阈值 × 此值，越低越易触发）" },
             { key: "general_interest_modifier", label: "general 倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "一般兴趣阈值倍率" },
             { key: "edge_interest_modifier", label: "edge 倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "边缘兴趣阈值倍率（marginal 命中时阈值 × 此值，越高越难触发）" },
             { key: "expecting_modifier", label: "期待状态倍率", type: "float", min: 0, max: 2, step: 0.01, hint: "期待回复状态阈值倍率（EXPECTING_REPLY 时阈值 × 此值）" },
             { key: "personal_threshold", label: "个人跟踪阈值", type: "float", min: 0, max: 2, step: 0.01, hint: "个人跟踪专用阈值 T_personal（低于全局阈值，无 @ 接话用）" },
             { key: "hate_similarity_threshold", label: "反感屏蔽阈值", type: "float", min: 0, max: 1, step: 0.01, hint: "批次嵌入与反感质心余弦 ≥ 此值则强制抑制" },
-            { key: "w_int", label: "权重 w_int", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：兴趣得分 s_int" },
-            { key: "w_topic", label: "权重 w_topic", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：话题连贯性 s_topic" },
-            { key: "w_resp", label: "权重 w_resp", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：回应期待 s_resp" },
-            { key: "w_cooldown", label: "权重 w_cooldown", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：冷却惩罚 c_cooldown（减项）" },
-            { key: "w_silence", label: "权重 w_silence", type: "float", min: 0, max: 5, step: 0.01, hint: "五因子融合权重：沉默奖励 p_silence" },
+            { key: "w_int", label: "权重 w_int", type: "float", min: 0, max: 5, step: 0.01, hint: "兴趣得分权重。越大 → 该因素对总分影响越大" },
+            { key: "w_topic", label: "权重 w_topic", type: "float", min: 0, max: 5, step: 0.01, hint: "话题连贯性权重。越大 → 该因素对总分影响越大" },
+            { key: "w_resp", label: "权重 w_resp", type: "float", min: 0, max: 5, step: 0.01, hint: "回应期待权重。越大 → 该因素对总分影响越大" },
+            { key: "w_cooldown", label: "权重 w_cooldown", type: "float", min: 0, max: 5, step: 0.01, hint: "冷却惩罚权重（减项）。越大 → 该因素对总分影响越大" },
+            { key: "w_silence", label: "权重 w_silence", type: "float", min: 0, max: 5, step: 0.01, hint: "沉默奖励权重。越大 → 该因素对总分影响越大" },
           ]
         },
         {
-          id: "batch", label: "批次与冷却",
-          fields: [
+          id: "batch", label: "批次与冷却", doc: "消息被收集到缓冲区后，按动态间隔组成批次。批次间隔在 batch_interval_min(活跃) 和 batch_interval_max(冷清) 之间根据消息速率动态调整。发言后进入冷却期，冷却消息数内 bot 发言占比越高，冷却惩罚越重。期待回复状态持续 expecting_duration 秒，期间阈值降低更易接话。",
+	          fields: [
             { key: "batch_interval_min", label: "批次间隔下限(秒)", type: "float", min: 0.1, max: 60, step: 0.1, hint: "消息速率高时取此值" },
             { key: "batch_interval_max", label: "批次间隔上限(秒)", type: "float", min: 0.1, max: 60, step: 0.1, hint: "消息速率低时取此值" },
-            { key: "cooldown_messages", label: "冷却消息数", type: "int", min: 0, max: 1000, hint: "发言后多少条消息内处于冷却" },
+            { key: "cooldown_messages", label: "冷却消息数", type: "int", min: 0, max: 1000, hint: "最近 N 条消息中 bot 发言占比越高，冷却惩罚越重" },
             { key: "expecting_duration", label: "期待持续(秒)", type: "int", min: 0, max: 3600, hint: "期待回复状态持续秒数" },
             { key: "personal_track_timeout", label: "个人跟踪超时(秒)", type: "int", min: 0, max: 3600, hint: "超时未触发则清理跟踪用户" },
             { key: "track_irrelevant_msgs", label: "跟踪连续不相关上限", type: "int", min: 0, max: 100, hint: "跟踪用户连续不相关消息达此数则移除" },
@@ -862,11 +903,12 @@
             { key: "long_window_size", label: "长窗口条数", type: "int", min: 1, max: 200, hint: "长窗口消息条数（仅被动 @ 触发时使用）" },
             { key: "long_window_top_n", label: "长窗口 Top-N", type: "int", min: 1, max: 200, hint: "被动触发时长窗口相关性取前 N 条" },
             { key: "long_window_summarize", label: "长窗口用 LLM 摘要", type: "bool", hint: "默认 false：直接取相关原文，更快、零额外 LLM 调用" },
+            { key: "long_window_inject_proactive", label: "主动回复注入长窗口", type: "bool", hint: "主动回复时是否注入长窗口相关性上下文（增加回复质量，但多 1 次嵌入调用）" },
           ]
         },
         {
-          id: "poll", label: "调度与轮询",
-          fields: [
+          id: "poll", label: "调度与轮询", doc: "调度器按照作息时段在活跃群之间轮询。非活跃时段仅被动响应，不主动发言不轮询。轮询周期决定多久尝试一次主动监听，监听周期决定单次监听持续多久。群冷却确保同一群不会连续被选中。",
+	          fields: [
             { key: "schedule", label: "作息时段", type: "schedule", full: true, hint: "活跃时间段（非活跃时段仅被动响应，不主动发言不轮询）" },
             { key: "schedule_jitter_minutes", label: "时段抖动(分钟)", type: "int", min: 0, max: 1440, hint: "时间段随机偏移 ±分钟" },
             { key: "poll_interval", label: "轮询周期(秒)", type: "int", min: 1, max: 86400, hint: "每周期选一个群进入主动监听" },
@@ -876,8 +918,8 @@
           ]
         },
         {
-          id: "glance", label: "瞥眼 / DRY",
-          fields: [
+          id: "glance", label: "瞥眼 / DRY", doc: "瞥一眼是机器人在期待回复期间，随机选其他群快速插话的机制。只选兴趣得分足够高且未过热的群。过热群(hot_group_msg_limit)和沉默群(silent_group_minutes)会被排除。",
+	          fields: [
             { key: "glance_enable", label: "瞥一眼开关", type: "bool", hint: "EXPECTING_REPLY 期随机选群快速插话" },
             { key: "glance_group_count", label: "瞥眼候选群数", type: "int", min: 1, max: 50, hint: "每次瞥眼最多从中选一个插话" },
             { key: "glance_min_score", label: "瞥眼最低得分", type: "float", min: 0, max: 1, step: 0.01, hint: "兴趣得分 ≥ 此值且冷却允许才插话" },
@@ -886,8 +928,8 @@
           ]
         },
         {
-          id: "fusion", label: "双通道与融合",
-          fields: [
+          id: "fusion", label: "双通道与融合", doc: "双通道融合将规则通道A和向量通道B的得分按加权平均合并为最终得分。final = α·score_a + (1−α)·score_b。启用动态权重后，强唤醒/@时偏向规则通道，短消息+期待时偏向语义通道。",
+	          fields: [
             { key: "enable_rule_channel", label: "启用规则通道 A", type: "bool", hint: "关闭后仅向量通道决策" },
             { key: "enable_vector_channel", label: "启用向量通道 B", type: "bool", hint: "关闭后仅规则通道决策" },
             { key: "fusion_weight_rule", label: "融合权重 α（A 占比）", type: "float", min: 0, max: 1, step: 0.01, hint: "final = α·a + (1−α)·b；越大越信任规则通道" },
@@ -897,8 +939,8 @@
           ]
         },
         {
-          id: "rule", label: "规则引擎",
-          fields: [
+          id: "rule", label: "规则引擎", doc: "规则通道A通过关键词匹配、疑问信号检测等方式快速判断是否需要回复。强唤醒词命中即高权重直出，弱语境唤醒词需额外达到语境阈值。疑问检测识别公开求助/排障等信号。最终得分归一化到 [0,1]。",
+	          fields: [
             { key: "rule_direct_wakeup_words", label: "强唤醒词", type: "list", full: true, hint: "命中即高权重直出；Bot 名由框架 @ 检测自动覆盖。每行一个" },
             { key: "rule_context_wakeup_words", label: "弱语境唤醒词", type: "list", full: true, hint: "命中且隐式分达阈值才触发。每行一个" },
             { key: "rule_context_threshold", label: "语境唤醒阈值", type: "int", min: 0, max: 150, hint: "0~150，命中语境词且原始分≥此值才触发" },
@@ -908,22 +950,22 @@
           ]
         },
         {
-          id: "fatigue", label: "疲劳度",
-          fields: [
+          id: "fatigue", label: "疲劳度", doc: "疲劳系统防止机器人过度发言。每次回复消耗疲劳值，疲劳值随时间指数衰减恢复。疲劳值越高，触发阈值乘以疲劳倍率越大，越难触发。高疲劳时可抑制非强制触发(非 core/@/强唤醒)。",
+	          fields: [
             { key: "fatigue_recovery_rate", label: "恢复速率(/分钟)", type: "float", min: 0, max: 10, step: 0.01, hint: "指数衰减 λ = 此值/60" },
             { key: "fatigue_limit", label: "疲劳上限", type: "float", min: 0, max: 100, step: 0.1, hint: "value 封顶于此；ratio=value/limit 决定级别" },
-            { key: "fatigue_cost_active", label: "消耗·主动回复", type: "float", min: 0, max: 10, step: 0.1 },
-            { key: "fatigue_cost_passive", label: "消耗·被动接话", type: "float", min: 0, max: 10, step: 0.1 },
-            { key: "fatigue_cost_track", label: "消耗·个人跟踪", type: "float", min: 0, max: 10, step: 0.1 },
-            { key: "fatigue_cost_glance", label: "消耗·瞥一眼", type: "float", min: 0, max: 10, step: 0.1 },
+            { key: "fatigue_cost_active", label: "消耗·主动回复", type: "float", min: 0, max: 10, step: 0.1, hint: "每次主动回复消耗的疲劳值" },
+            { key: "fatigue_cost_passive", label: "消耗·被动接话", type: "float", min: 0, max: 10, step: 0.1, hint: "每次被动接话消耗的疲劳值" },
+            { key: "fatigue_cost_track", label: "消耗·个人跟踪", type: "float", min: 0, max: 10, step: 0.1, hint: "每次个人跟踪回复消耗的疲劳值" },
+            { key: "fatigue_cost_glance", label: "消耗·瞥一眼", type: "float", min: 0, max: 10, step: 0.1, hint: "每次瞥一眼消耗的疲劳值" },
             { key: "fatigue_high_modifier", label: "高疲劳倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "high 时阈值 × 此值，更难触发" },
             { key: "fatigue_medium_modifier", label: "中疲劳倍率", type: "float", min: 0, max: 3, step: 0.01, hint: "medium 时阈值 × 此值" },
             { key: "fatigue_suppress_enabled", label: "高疲劳抑制非强制", type: "bool", hint: "high 且非 core/@/强唤醒时不回复" },
           ]
         },
         {
-          id: "inertia", label: "惯性 / 等待窗口",
-          fields: [
+          id: "inertia", label: "惯性 / 等待窗口", doc: "惯性系统让机器人在回复后更倾向于继续接话。回复后概率提升(after_reply_probability)映射为阈值倍率，窗口内更易接话。等待窗口在回复后收集同用户连续后续消息合并回复，避免打断用户连贯发言。",
+	          fields: [
             { key: "after_reply_probability", label: "回复后概率提升", type: "float", min: 0, max: 1, step: 0.01, hint: "映射为阈值倍率，窗口内更易接话" },
             { key: "probability_duration", label: "提升持续(秒)", type: "int", min: 0, max: 3600, hint: "回复后概率提升持续秒数" },
             { key: "wait_window_duration_ms", label: "等待窗口时长(毫秒)", type: "int", min: 0, max: 60000, hint: "回复后收集同用户连续后续消息合并回复；0=禁用" },
@@ -933,8 +975,8 @@
           ]
         },
         {
-          id: "reply_keyword", label: "回复关键词匹配",
-          fields: [
+          id: "reply_keyword", label: "回复关键词匹配", doc: "回复关键词匹配利用机器人上次回复内容做分词，当目标用户下次发消息时计算匹配度叠加到最终评分。匹配度高可直接触发回复，连续低分则清除缓存。适合「用户追问机器人刚说过的话题」场景。",
+	          fields: [
             { key: "reply_keyword_enabled", label: "启用回复关键词匹配", type: "bool", hint: "利用机器人上次回复内容做分词，目标用户下次发消息时计算匹配度叠加到最终评分" },
             { key: "reply_keyword_top_n", label: "关键词提取数量 N", type: "int", min: 1, max: 20, hint: "jieba TF-IDF 提取的关键词最大数量" },
             { key: "reply_keyword_boost_factor", label: "匹配增益系数", type: "float", min: 0, max: 2, step: 0.01, hint: "匹配得分乘以此系数得到 added_score，叠加到 final_score" },
@@ -1114,10 +1156,10 @@
           var tr = d.triggered === true;
           var ch = d.channel || "vector";
           html += '<tr>'
-            + '<td class="td-num">' + (d.ts ? new Date(d.ts * 1000).toLocaleTimeString() : '—') + '</td>'
-            + '<td>' + escapeHtml(d.group_id || "") + '</td>'
-            + '<td class="ellipsis" title="' + escapeHtml(d.batch_summary || '') + '">' + escapeHtml(d.batch_summary || '') + '</td>'
-            + '<td class="' + channelClass(ch) + '">' + escapeHtml(ch) + '</td>'
+	            + '<td class="td-num">' + (d.ts ? new Date(d.ts * 1000).toLocaleTimeString() : '—') + '</td>'
+	            + '<td>' + escapeHtml(d.group_id || "") + '</td>'
+	            + '<td class="ellipsis" title="' + escapeHtml(d.batch_summary || '') + '">' + escapeHtml(d.batch_summary || '') + '</td>'
+	            + '<td class="' + channelClass(ch) + '">' + escapeHtml(ch) + (d.embedding_degraded ? ' <span class="tag-degraded">降级</span>' : '') + '</td>'
             + '<td class="td-num">' + miniBar(d.score_a || 0, 1, "mb-a") + '</td>'
             + '<td class="td-num">' + miniBar(d.score_b || 0, 1, "mb-b") + '</td>'
             + '<td class="td-num">' + fmtFixed(d.alpha, 2) + '</td>'
@@ -1195,15 +1237,25 @@
           return '<button class="cfg-tab' + (grp.id === currentCfgTab ? " active" : "") + '" data-tab="' + grp.id + '">' + escapeHtml(grp.label) + '</button>';
         }).join("");
         tabs.addEventListener("click", function (e) {
-          var btn = e.target.closest ? e.target.closest(".cfg-tab") : null;
-          if (!btn) return;
-          currentCfgTab = btn.getAttribute("data-tab");
-          buildConfigTabs();   // 重渲染高亮
-          buildConfigForm();
-          fillConfigForm(loadedConfig);
-        });
+	          var btn = e.target.closest ? e.target.closest(".cfg-tab") : null;
+	          if (!btn) return;
+	          flushAutoSave();  // F7：切换前先保存脏字段
+	          currentCfgTab = btn.getAttribute("data-tab");
+	          switchCfgTab();    // F10：仅切换 active class，不重建 DOM
+	        });
       }
-      function findField(key) {
+      // F10：子标签切换——仅 show/hide，不重建 DOM
+	      function switchCfgTab() {
+	        var tabs = document.querySelectorAll(".cfg-tab");
+	        for (var i = 0; i < tabs.length; i++) {
+	          tabs[i].classList.toggle("active", tabs[i].getAttribute("data-tab") === currentCfgTab);
+	        }
+	        var groups = document.querySelectorAll(".cfg-group");
+	        for (var j = 0; j < groups.length; j++) {
+	          groups[j].classList.toggle("active", groups[j].getAttribute("data-group") === currentCfgTab);
+	        }
+	      }
+	      function findField(key) {
         for (var i = 0; i < CONFIG_GROUPS.length; i++) {
           for (var j = 0; j < CONFIG_GROUPS[i].fields.length; j++) {
             if (CONFIG_GROUPS[i].fields[j].key === key) return CONFIG_GROUPS[i].fields[j];
@@ -1341,19 +1393,23 @@
         return el.value;
       }
       function buildConfigForm() {
-        var form = document.getElementById("cfgForm");
-        var html = "";
-        CONFIG_GROUPS.forEach(function (grp) {
-          var active = grp.id === currentCfgTab ? " active" : "";
-          html += '<div class="cfg-group' + active + '" data-group="' + grp.id + '">';
-          html += '<div class="cfg-grid">';
-          grp.fields.forEach(function (f) { html += fieldHtml(f, "cfg"); });
-          html += '</div></div>';
-        });
-        form.innerHTML = html;
-        form.addEventListener("input", markDirty);
-        form.addEventListener("change", markDirty);
-      }
+	        var form = document.getElementById("cfgForm");
+	        var html = "";
+	        CONFIG_GROUPS.forEach(function (grp) {
+	          var active = grp.id === currentCfgTab ? " active" : "";
+	          html += '<div class="cfg-group' + active + '" data-group="' + grp.id + '">';
+	          html += '<div class="cfg-grid">';
+	          grp.fields.forEach(function (f) { html += fieldHtml(f, "cfg"); });
+	          html += '</div>';
+	          if (grp.doc) {
+	            html += '<div class="section-doc"><div class="doc-title">📖 工作原理</div>' + escapeHtml(grp.doc) + '</div>';
+	          }
+	          html += '</div>';
+	        });
+	        form.innerHTML = html;
+	        form.addEventListener("input", markDirty);
+	        form.addEventListener("change", markDirty);
+	      }
       function markDirty(e) {
         var el = e.target;
         if (!el) return;
@@ -1761,35 +1817,106 @@
         });
       }
       function ensureInterestBound() {
-        // content 容器事件委托（只绑一次），处理 .del 与 .sub-tab 点击
-        var content = document.getElementById("interestContent");
-        if (!content || content._interestBound) return;
-        content._interestBound = true;
-        content.addEventListener("click", function (e) {
-          var delBtn = e.target.closest ? e.target.closest(".del") : null;
-          var subBtn = e.target.closest ? e.target.closest(".sub-tab") : null;
-          if (delBtn) {
-            if (delBtn._disabled) return;
-            var kind = delBtn.getAttribute("data-kind");
-            var label = delBtn.getAttribute("data-label") || "";
-            var text = delBtn.getAttribute("data-text") || "";
-            if (!kind || !text) return;
-            delBtn._disabled = true;
-            delBtn.disabled = true;
-            rejectInterest(kind, label, text, delBtn);
-          } else if (subBtn) {
-            currentInterestTab = subBtn.getAttribute("data-lv");
-            var allTabs = content.querySelectorAll(".sub-tab");
-            for (var i = 0; i < allTabs.length; i++) {
-              allTabs[i].classList.toggle("active", allTabs[i].getAttribute("data-lv") === currentInterestTab);
-            }
-            var allLevels = content.querySelectorAll(".interest-level");
-            for (var j = 0; j < allLevels.length; j++) {
-              allLevels[j].classList.toggle("active", allLevels[j].getAttribute("data-lv") === currentInterestTab);
-            }
-          }
-        });
-      }
+	        // content 容器事件委托（只绑一次），处理 .del / .sub-tab / .add-confirm / .edit-btn 点击
+	        var content = document.getElementById("interestContent");
+	        if (!content || content._interestBound) return;
+	        content._interestBound = true;
+	        content.addEventListener("click", function (e) {
+	          var delBtn = e.target.closest ? e.target.closest(".del") : null;
+	          var subBtn = e.target.closest ? e.target.closest(".sub-tab") : null;
+	          var addBtn = e.target.closest ? e.target.closest(".add-confirm") : null;
+	          var editBtn = e.target.closest ? e.target.closest(".edit-btn") : null;
+	          if (delBtn) {
+	            if (delBtn._disabled) return;
+	            var kind = delBtn.getAttribute("data-kind");
+	            var label = delBtn.getAttribute("data-label") || "";
+	            var text = delBtn.getAttribute("data-text") || "";
+	            if (!kind || !text) return;
+	            delBtn._disabled = true;
+	            delBtn.disabled = true;
+	            rejectInterest(kind, label, text, delBtn);
+	          } else if (addBtn) {
+	            // F2: add interest item
+	            var kind = addBtn.getAttribute("data-kind");
+	            var label = addBtn.getAttribute("data-label") || "";
+	            var row = addBtn.closest ? addBtn.closest(".add-row") : null;
+	            var inp = row ? row.querySelector(".add-input") : null;
+	            var text = inp ? inp.value.trim() : "";
+	            if (!text) return;
+	            addInterestItem(kind, label, text);
+	            if (inp) inp.value = "";
+	          } else if (editBtn) {
+	            // F2: inline edit interest item
+	            var kind = editBtn.getAttribute("data-kind");
+	            var label = editBtn.getAttribute("data-label") || "";
+	            var oldText = editBtn.getAttribute("data-old") || "";
+	            var item = editBtn.closest ? editBtn.closest(".ex-item, .kw-item") : null;
+	            if (!item) return;
+	            var textSpan = item.querySelector(".text");
+	            if (!textSpan) return;
+	            // Already editing? Save
+	            if (editBtn._editing) {
+	              var editInput = item.querySelector(".edit-input");
+	              var newText = editInput ? editInput.value.trim() : "";
+	              if (newText && newText !== oldText) {
+	                updateInterestItem(kind, label, oldText, newText);
+	              }
+	              editBtn._editing = false;
+	              return;
+	            }
+	            // Switch to edit mode
+	            editBtn._editing = true;
+	            var input = document.createElement("input");
+	            input.type = "text";
+	            input.className = "edit-input";
+	            input.value = oldText;
+	            textSpan.textContent = "";
+	            textSpan.appendChild(input);
+	            input.focus();
+	            input.addEventListener("keydown", function(ev) {
+	              if (ev.key === "Enter") { ev.preventDefault(); editBtn.click(); }
+	              if (ev.key === "Escape") {
+	                textSpan.textContent = oldText;
+	                editBtn._editing = false;
+	              }
+	            });
+	            input.addEventListener("blur", function() {
+	              // Delay to allow click on edit-btn to complete
+	              setTimeout(function() {
+	                if (editBtn._editing) {
+	                  var val = input.value.trim();
+	                  if (val && val !== oldText) {
+	                    updateInterestItem(kind, label, oldText, val);
+	                  } else {
+	                    textSpan.textContent = oldText;
+	                  }
+	                  editBtn._editing = false;
+	                }
+	              }, 150);
+	            });
+	          } else if (subBtn) {
+	            currentInterestTab = subBtn.getAttribute("data-lv");
+	            var allTabs = content.querySelectorAll(".sub-tab");
+	            for (var i = 0; i < allTabs.length; i++) {
+	              allTabs[i].classList.toggle("active", allTabs[i].getAttribute("data-lv") === currentInterestTab);
+	            }
+	            var allLevels = content.querySelectorAll(".interest-level");
+	            for (var j = 0; j < allLevels.length; j++) {
+	              allLevels[j].classList.toggle("active", allLevels[j].getAttribute("data-lv") === currentInterestTab);
+	            }
+	          }
+	        });
+	        // F2: Enter key in add-input
+	        content.addEventListener("keydown", function(e) {
+	          if (e.key !== "Enter") return;
+	          var inp = e.target.closest ? e.target.closest(".add-input") : null;
+	          if (!inp) return;
+	          e.preventDefault();
+	          var row = inp.closest ? inp.closest(".add-row") : null;
+	          var btn = row ? row.querySelector(".add-confirm") : null;
+	          if (btn) btn.click();
+	        });
+	      }
       function renderInterests(data) {
         var content = document.getElementById("interestContent");
         if (!content) return;
@@ -1827,19 +1954,25 @@
           html += '<span class="lv-weight">weight: ' + fmtFixed(item.weight, 2) + '</span>';
           html += '</div>';
           // examples
-          html += '<div class="interest-section-title">示例句子（点 × 过滤）</div>';
-          var exs = item.examples || [];
-          if (!exs.length) {
-            html += '<div class="empty">无示例</div>';
-          } else {
-            html += '<div class="ex-list">';
-            exs.forEach(function (ex) {
-              html += '<div class="ex-item"><span class="text">' + escapeHtml(ex) + '</span>'
-                + '<button class="del" data-kind="example" data-label="' + escapeHtml(lv) + '" data-text="' + escapeHtml(ex) + '" title="过滤此示例">×</button>'
-                + '</div>';
-            });
-            html += '</div>';
-          }
+	          html += '<div class="interest-section-title">示例句子（点 × 过滤，点 ✏️ 编辑）</div>';
+	          var exs = item.examples || [];
+	          if (!exs.length) {
+	            html += '<div class="empty">无示例</div>';
+	          } else {
+	            html += '<div class="ex-list">';
+	            exs.forEach(function (ex) {
+	              html += '<div class="ex-item"><span class="text">' + escapeHtml(ex) + '</span>'
+	                + '<button class="edit-btn" data-kind="example" data-label="' + escapeHtml(lv) + '" data-old="' + escapeHtml(ex) + '" title="编辑">✏️</button>'
+	                + '<button class="del" data-kind="example" data-label="' + escapeHtml(lv) + '" data-text="' + escapeHtml(ex) + '" title="过滤此示例">×</button>'
+	                + '</div>';
+	            });
+	            html += '</div>';
+	          }
+	          // F2: add example input
+	          html += '<div class="add-row">'
+	            + '<input type="text" class="text-input add-input" placeholder="输入新示例句子…" data-kind="example" data-label="' + escapeHtml(lv) + '" />'
+	            + '<button class="btn add-confirm" data-kind="example" data-label="' + escapeHtml(lv) + '">添加</button>'
+	            + '</div>';
           // keywords：core/general 显示 high_interest_keywords，hate 显示 hate_keywords
           var kws = [];
           var kwTitle = "";
@@ -1851,19 +1984,25 @@
             kwTitle = "反感关键词（点 × 过滤）";
           }
           if (kwTitle) {
-            html += '<div class="interest-section-title">' + kwTitle + '</div>';
-            if (!kws.length) {
-              html += '<div class="empty">无关键词</div>';
-            } else {
-              html += '<div class="kw-list">';
-              kws.forEach(function (kw) {
-                html += '<div class="kw-item"><span class="text">' + escapeHtml(kw) + '</span>'
-                  + '<button class="del" data-kind="keyword" data-text="' + escapeHtml(kw) + '" title="过滤此关键词">×</button>'
-                  + '</div>';
-              });
-              html += '</div>';
-            }
-          }
+	            html += '<div class="interest-section-title">' + kwTitle + '</div>';
+	            if (!kws.length) {
+	              html += '<div class="empty">无关键词</div>';
+	            } else {
+	              html += '<div class="kw-list">';
+	              kws.forEach(function (kw) {
+	                html += '<div class="kw-item"><span class="text">' + escapeHtml(kw) + '</span>'
+	                  + '<button class="edit-btn" data-kind="keyword" data-label="' + escapeHtml(lv) + '" data-old="' + escapeHtml(kw) + '" title="编辑">✏️</button>'
+	                  + '<button class="del" data-kind="keyword" data-text="' + escapeHtml(kw) + '" title="过滤此关键词">×</button>'
+	                  + '</div>';
+	              });
+	              html += '</div>';
+	            }
+	            // F2: add keyword input
+	            html += '<div class="add-row">'
+	              + '<input type="text" class="text-input add-input" placeholder="输入新关键词…" data-kind="keyword" data-label="' + escapeHtml(lv) + '" />'
+	              + '<button class="btn add-confirm" data-kind="keyword" data-label="' + escapeHtml(lv) + '">添加</button>'
+	              + '</div>';
+	          }
           html += '</div>';  // interest-card
           html += '</div>';  // interest-level
         });
@@ -1886,17 +2025,41 @@
         content.innerHTML = html;
       }
       function rejectInterest(kind, label, text, btn) {
-        if (!bridge) return;
-        var body = { action: "reject", kind: kind, text: text };
-        if (kind === "example") body.label = label;
-        callApi(bridge.apiPost("prosocial/interests", body)).then(function () {
-          toast("已过滤", "ok");
-          loadInterests();   // 删除后刷新
-        }).catch(function (e) {
-          toast("过滤失败: " + e.message, "err");
-          if (btn) { btn._disabled = false; btn.disabled = false; }
-        });
-      }
+	        if (!bridge) return;
+	        var body = { action: "reject", kind: kind, text: text };
+	        if (kind === "example") body.label = label;
+	        callApi(bridge.apiPost("prosocial/interests", body)).then(function () {
+	          toast("已过滤", "ok");
+	          loadInterests();   // 删除后刷新
+	        }).catch(function (e) {
+	          toast("过滤失败: " + e.message, "err");
+	          if (btn) { btn._disabled = false; btn.disabled = false; }
+	        });
+	      }
+	      // F2: add interest item
+	      function addInterestItem(kind, label, text) {
+	        if (!bridge) return;
+	        var body = { action: "add", kind: kind, text: text };
+	        if (kind === "example") body.label = label;
+	        callApi(bridge.apiPost("prosocial/interests", body)).then(function () {
+	          toast("已添加", "ok");
+	          loadInterests();
+	        }).catch(function (e) {
+	          toast("添加失败: " + e.message, "err");
+	        });
+	      }
+	      // F2: update interest item
+	      function updateInterestItem(kind, label, oldText, newText) {
+	        if (!bridge) return;
+	        var body = { action: "update", kind: kind, old_text: oldText, new_text: newText };
+	        if (kind === "example") body.label = label;
+	        callApi(bridge.apiPost("prosocial/interests", body)).then(function () {
+	          toast("已更新", "ok");
+	          loadInterests();
+	        }).catch(function (e) {
+	          toast("更新失败: " + e.message, "err");
+	        });
+	      }
       function applyInterestFilter() {
         if (!bridge) return;
         var btn = document.getElementById("interestApply");
@@ -1982,7 +2145,22 @@
           tryCloseWizard();
         });
 
-        // DRY_RUN toggle
+        // F11 导出 JSON 按钮
+	        document.getElementById("exportBtn").addEventListener("click", function() {
+	          if (!bridge) return;
+	          callApi(bridge.apiGet("prosocial/export")).then(function(d) {
+	            var blob = new Blob([JSON.stringify(d, null, 2)], {type: "application/json"});
+	            var url = URL.createObjectURL(blob);
+	            var a = document.createElement("a");
+	            a.href = url;
+	            a.download = "prosocial_export_" + new Date().toISOString().slice(0,10) + ".json";
+	            a.click();
+	            URL.revokeObjectURL(url);
+	            toast("已导出", "ok");
+	          }).catch(function(e) { toast("导出失败: " + e.message, "err"); });
+	        });
+
+	        // DRY_RUN toggle
         document.getElementById("dryToggle").addEventListener("change", function () {
           var on = this.checked;
           this.disabled = true;

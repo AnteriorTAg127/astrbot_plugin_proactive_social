@@ -84,13 +84,14 @@ def test_default_config_schedule_no_template_key():
 
 
 def test_special_keys_excludes_chat_provider():
-    """验收 #4/#7：SPECIAL_KEYS 仅含 chat_provider_id，且不在 DEFAULT_CONFIG。
+    """验收 #4/#7：SPECIAL_KEYS 含 chat_provider_id 和 embedding_provider_id，且不在 DEFAULT_CONFIG。
 
-    ConfigStore 不管理特殊选择器；chat_provider_id 由 AstrBotConfig 原生承载，
-    ``_config_getter`` 合并两源时叠加。
+    ConfigStore 不管理特殊选择器；chat_provider_id / embedding_provider_id
+    由 AstrBotConfig 原生承载，``_config_getter`` 合并两源时叠加。
     """
-    assert SPECIAL_KEYS == frozenset({"chat_provider_id"})
+    assert SPECIAL_KEYS == frozenset({"chat_provider_id", "embedding_provider_id"})
     assert "chat_provider_id" not in ConfigStore.DEFAULT_CONFIG
+    assert "embedding_provider_id" not in ConfigStore.DEFAULT_CONFIG
 
 
 # ======================================================================
@@ -148,9 +149,7 @@ def test_set_many_rejects_special_key():
     async def _run():
         store = ConfigStore()
         set_fn = AsyncMock()
-        ok, msg = await store.set_many(
-            {"chat_provider_id": "provider-xxx"}, set_fn
-        )
+        ok, msg = await store.set_many({"chat_provider_id": "provider-xxx"}, set_fn)
         assert ok is False
         assert "特殊" in msg
         # ConfigStore 不管理特殊键，缓存里不应该出现该键
@@ -243,9 +242,7 @@ def test_set_many_list_type():
         store = ConfigStore()
         set_fn = AsyncMock()
         # 合法 list
-        ok1, msg1 = await store.set_many(
-            {"group_whitelist": ["g1", "g2"]}, set_fn
-        )
+        ok1, msg1 = await store.set_many({"group_whitelist": ["g1", "g2"]}, set_fn)
         assert ok1 is True
         assert msg1 == ""
         assert store.get()["group_whitelist"] == ["g1", "g2"]
@@ -269,9 +266,7 @@ def test_set_many_schedule_valid():
         )
         assert ok1 is True
         assert msg1 == ""
-        assert store.get()["schedule"] == [
-            {"start": "08:00", "end": "10:00"}
-        ]
+        assert store.get()["schedule"] == [{"start": "08:00", "end": "10:00"}]
         # 非 list
         ok2, msg2 = await store.set_many({"schedule": "notlist"}, set_fn)
         assert ok2 is False
@@ -400,20 +395,25 @@ def test_config_getter_merges_special_keys():
     """验收 #7：config_getter 合并 ConfigStore 缓存（普通参数）+ AstrBotConfig（特殊选择器）。
 
     复现 main.py ``_config_getter`` 的合并逻辑（不 import astrbot 运行时），
-    验证合并后 scheduler 能同时读到普通参数与特殊选择器 chat_provider_id。
+    验证合并后 scheduler 能同时读到普通参数与特殊选择器 chat_provider_id / embedding_provider_id。
     """
     store = ConfigStore()
-    astrbot_config = {"chat_provider_id": "provider-xxx"}
+    astrbot_config = {
+        "chat_provider_id": "provider-xxx",
+        "embedding_provider_id": "emb-yyy",
+    }
     plugin = _MockPlugin(store, SPECIAL_KEYS, astrbot_config)
     cfg = plugin._config_getter()
     # 特殊键从 self.config 叠加
     assert cfg["chat_provider_id"] == "provider-xxx"
+    assert cfg["embedding_provider_id"] == "emb-yyy"
     # 全部普通参数都在（来自 ConfigStore 缓存，值是默认）
     for k, v in ConfigStore.DEFAULT_CONFIG.items():
         assert k in cfg
         assert cfg[k] == v
-    # ConfigStore 自身不持有 chat_provider_id（来源是 self.config）
+    # ConfigStore 自身不持有特殊键（来源是 self.config）
     assert "chat_provider_id" not in store.get()
+    assert "embedding_provider_id" not in store.get()
     # 合并是浅拷贝，外部修改不应污染 ConfigStore 缓存
     cfg["base_threshold"] = 99.0
     assert store.get()["base_threshold"] == ConfigStore.DEFAULT_CONFIG["base_threshold"]
@@ -434,7 +434,7 @@ def test_hot_update_reflected_in_get():
     async def _run():
         store = ConfigStore()
         set_fn = AsyncMock(return_value=None)
-        assert store.get()["base_threshold"] == 0.65  # 默认
+        assert store.get()["base_threshold"] == 0.55  # v0.2.6 默认
         await store.set_many({"base_threshold": 0.42}, set_fn)
         # 立即生效，无需 reload
         assert store.get()["base_threshold"] == 0.42

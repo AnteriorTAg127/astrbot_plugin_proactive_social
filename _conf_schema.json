@@ -1,6 +1,12 @@
 {
   "chat_provider_id": {
-    "description": "主动生成用聊天模型；留空 = 用该群会话当前聊天模型（其余配置已迁移至插件 Dashboard）",
+    "description": "主动生成用聊天模型；留空 = 用该群会话当前聊天模型",
+    "type": "string",
+    "default": "",
+    "_special": "select_provider"
+  },
+  "embedding_provider_id": {
+    "description": "主动生成用嵌入模型；留空 = 自动选择第一个可用的 Embedding Provider",
     "type": "string",
     "default": "",
     "_special": "select_provider"

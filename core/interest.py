@@ -199,6 +199,8 @@ class InterestManager:
         persona_knowledge: str,
         llm_fn: Callable[[str], Awaitable[str]],
         embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+        example_count: int = 3,
+        keyword_count: int = 12,
     ) -> InterestData:
         """有持久化且 persona 哈希未变 -> 直接加载；否则 regenerate。
 
@@ -236,7 +238,14 @@ class InterestManager:
                     f"[ProSocial] interest.py: 加载 interests.npz 失败，回退重建: {e}",
                 )
 
-        return await self.regenerate(persona_text, persona_knowledge, llm_fn, embed_fn)
+        return await self.regenerate(
+            persona_text,
+            persona_knowledge,
+            llm_fn,
+            embed_fn,
+            example_count=example_count,
+            keyword_count=keyword_count,
+        )
 
     async def regenerate(
         self,
@@ -244,6 +253,8 @@ class InterestManager:
         persona_knowledge: str,
         llm_fn: Callable[[str], Awaitable[str]],
         embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+        example_count: int = 3,
+        keyword_count: int = 12,
     ) -> InterestData:
         """1 次 LLM（build_interest_prompt）+ 1 次批量 embed -> 各级别质心 -> 存 interests.npz。
 
@@ -259,7 +270,11 @@ class InterestManager:
 
         # 1. LLM 生成兴趣语料（带 1 次重试 + 兜底）
         payload = await self._gen_payload_with_retry(
-            effective_persona, persona_knowledge, llm_fn
+            effective_persona,
+            persona_knowledge,
+            llm_fn,
+            example_count=example_count,
+            keyword_count=keyword_count,
         )
 
         # 2. 解析为 InterestItem 列表
@@ -451,6 +466,172 @@ class InterestManager:
             return False, str(e)
 
     # ------------------------------------------------------------------ #
+    # 增删改查（F2）：add / update / remove
+    # ------------------------------------------------------------------ #
+    async def add_item(
+        self,
+        kind: str,
+        label: str,
+        text: str,
+        embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+    ) -> tuple[bool, str]:
+        """添加自定义关键词或示例句子。
+
+        kind="example" : 向指定 label 的 InterestItem.examples 追加
+        kind="high_keyword" : 向 high_interest_keywords 追加
+        kind="hate_keyword" : 向 hate_keywords 追加
+        添加后重算质心并持久化。
+        """
+        if self._data is None:
+            return False, "尚未生成兴趣数据"
+        if not text or not text.strip():
+            return False, "文本不能为空"
+
+        text = text.strip()
+
+        if kind == "example":
+            level_map = {lv.value: lv for lv in InterestLevel}
+            lv = level_map.get(label)
+            if lv is None:
+                return False, f"非法 label: {label}"
+            # 找到对应 label 的第一个 item 追加
+            target_items = [it for it in self._data.items if it.level == lv]
+            if not target_items:
+                return False, f"未找到 label={label} 的兴趣项"
+            target_items[0].examples.append(text)
+        elif kind == "high_keyword":
+            if text not in self._data.high_interest_keywords:
+                self._data.high_interest_keywords.append(text)
+        elif kind == "hate_keyword":
+            if text not in self._data.hate_keywords:
+                self._data.hate_keywords.append(text)
+        else:
+            return False, f"未知 kind: {kind}"
+
+        # 重算质心并持久化
+        centroids, dim = await self._recompute_centroids(self._data.items, embed_fn)
+        self._data.centroids = centroids
+        self._data.dim = dim
+        try:
+            self._save_npz(self._data)
+        except Exception as e:
+            self.log("warning", f"[ProSocial] interest.py: add_item 持久化失败: {e}")
+        return True, ""
+
+    async def update_item(
+        self,
+        kind: str,
+        label: str,
+        old_text: str,
+        new_text: str,
+        embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+    ) -> tuple[bool, str]:
+        """更新关键词或示例句子。
+
+        kind="example" : 在指定 label 的 InterestItem.examples 中替换 old_text → new_text
+        kind="high_keyword" : 在 high_interest_keywords 中替换
+        kind="hate_keyword" : 在 hate_keywords 中替换
+        替换后重算质心并持久化。
+        """
+        if self._data is None:
+            return False, "尚未生成兴趣数据"
+        if not new_text or not new_text.strip():
+            return False, "新文本不能为空"
+
+        new_text = new_text.strip()
+        found = False
+
+        if kind == "example":
+            level_map = {lv.value: lv for lv in InterestLevel}
+            lv = level_map.get(label)
+            if lv is None:
+                return False, f"非法 label: {label}"
+            for it in self._data.items:
+                if it.level == lv and old_text in it.examples:
+                    idx = it.examples.index(old_text)
+                    it.examples[idx] = new_text
+                    found = True
+                    break
+        elif kind == "high_keyword":
+            if old_text in self._data.high_interest_keywords:
+                idx = self._data.high_interest_keywords.index(old_text)
+                self._data.high_interest_keywords[idx] = new_text
+                found = True
+        elif kind == "hate_keyword":
+            if old_text in self._data.hate_keywords:
+                idx = self._data.hate_keywords.index(old_text)
+                self._data.hate_keywords[idx] = new_text
+                found = True
+        else:
+            return False, f"未知 kind: {kind}"
+
+        if not found:
+            return False, f"未找到要更新的项: {old_text}"
+
+        # 重算质心并持久化
+        centroids, dim = await self._recompute_centroids(self._data.items, embed_fn)
+        self._data.centroids = centroids
+        self._data.dim = dim
+        try:
+            self._save_npz(self._data)
+        except Exception as e:
+            self.log("warning", f"[ProSocial] interest.py: update_item 持久化失败: {e}")
+        return True, ""
+
+    async def remove_item(
+        self,
+        kind: str,
+        label: str,
+        text: str,
+        embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+    ) -> tuple[bool, str]:
+        """移除关键词或示例句子（不进 rejected 列表，直接删除）。
+
+        kind="example" : 从指定 label 的 InterestItem.examples 中移除
+        kind="high_keyword" : 从 high_interest_keywords 中移除
+        kind="hate_keyword" : 从 hate_keywords 中移除
+        移除后重算质心并持久化。
+        """
+        if self._data is None:
+            return False, "尚未生成兴趣数据"
+
+        found = False
+
+        if kind == "example":
+            level_map = {lv.value: lv for lv in InterestLevel}
+            lv = level_map.get(label)
+            if lv is None:
+                return False, f"非法 label: {label}"
+            for it in self._data.items:
+                if it.level == lv and text in it.examples:
+                    it.examples.remove(text)
+                    found = True
+                    break
+        elif kind == "high_keyword":
+            if text in self._data.high_interest_keywords:
+                self._data.high_interest_keywords.remove(text)
+                found = True
+        elif kind == "hate_keyword":
+            if text in self._data.hate_keywords:
+                self._data.hate_keywords.remove(text)
+                found = True
+        else:
+            return False, f"未知 kind: {kind}"
+
+        if not found:
+            return False, f"未找到要移除的项: {text}"
+
+        # 重算质心并持久化
+        centroids, dim = await self._recompute_centroids(self._data.items, embed_fn)
+        self._data.centroids = centroids
+        self._data.dim = dim
+        try:
+            self._save_npz(self._data)
+        except Exception as e:
+            self.log("warning", f"[ProSocial] interest.py: remove_item 持久化失败: {e}")
+        return True, ""
+
+    # ------------------------------------------------------------------ #
     # 内部辅助方法
     # ------------------------------------------------------------------ #
 
@@ -519,7 +700,8 @@ class InterestManager:
                 level=it.level,
                 topic=it.topic,
                 examples=[
-                    ex for ex in it.examples
+                    ex
+                    for ex in it.examples
                     if (it.level.value, ex) not in rejected_examples
                 ],
                 weight=it.weight,
@@ -542,9 +724,16 @@ class InterestManager:
         persona_text: str,
         persona_knowledge: str,
         llm_fn: Callable[[str], Awaitable[str]],
+        example_count: int = 3,
+        keyword_count: int = 12,
     ) -> dict:
         """调用 LLM 生成兴趣 JSON，最多重试 1 次；仍失败用内置默认兴趣集兜底。"""
-        prompt = build_interest_prompt(persona_text, persona_knowledge)
+        prompt = build_interest_prompt(
+            persona_text,
+            persona_knowledge,
+            example_count=example_count,
+            keyword_count=keyword_count,
+        )
         for attempt in range(2):
             try:
                 raw = await llm_fn(prompt)

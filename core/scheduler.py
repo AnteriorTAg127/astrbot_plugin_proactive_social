@@ -234,8 +234,15 @@ class SocialScheduler:
                 try:
                     persona_text = str(cfg.get("persona_text", ""))
                     persona_knowledge = str(cfg.get("persona_knowledge", ""))
+                    example_count = int(cfg.get("interest_example_count", 3))
+                    keyword_count = int(cfg.get("interest_keyword_count", 12))
                     await self._interest_mgr.ensure_loaded(
-                        persona_text, persona_knowledge, self._llm_fn, self._embed_fn
+                        persona_text,
+                        persona_knowledge,
+                        self._llm_fn,
+                        self._embed_fn,
+                        example_count=example_count,
+                        keyword_count=keyword_count,
                     )
                 except Exception as e:
                     self._log(
@@ -562,6 +569,9 @@ class SocialScheduler:
 
             # 3. 拼接批次文本
             batch_text = " ".join(m.text for m in msgs)
+            # F5: 空批次过滤——文本全为空白时跳过嵌入和评估
+            if not batch_text.strip():
+                return
             batch_summary = batch_text[:80]
 
             # 4. 嵌入（限流）
@@ -921,6 +931,8 @@ class SocialScheduler:
                 channel=channel,
                 keyword_match_score=float(keyword_match_score),
                 keyword_added_score=float(keyword_added_score),
+                # v0.2.6 Embedding 降级标记（F12）
+                embedding_degraded=(batch_emb is None),
             )
             self._decision_log.add(d)
             try:
@@ -932,13 +944,54 @@ class SocialScheduler:
 
             # 14. 触发 -> 生成并发送
             if triggered:
+                # F8: 主动回复时注入长窗口上下文
+                extra_ctx = ""
+                if bool(cfg.get("long_window_inject_proactive", True)):
+                    try:
+                        short_text = g["context"].short_window_text()
+                        if short_text and batch_emb is not None:
+                            anchor_embs = await self._embed([short_text])
+                            anchor_emb = anchor_embs[0] if anchor_embs else None
+                            if anchor_emb:
+                                top_n = int(cfg.get("long_window_top_n", 6))
+                                long_texts = g["context"].select_long_relevant(
+                                    anchor_emb, top_n
+                                )
+                                if long_texts:
+                                    long_window_text = "\n".join(long_texts)
+                                    long_summarize = bool(
+                                        cfg.get("long_window_summarize", False)
+                                    )
+                                    if long_summarize:
+                                        from .prompts import build_summary_prompt
+
+                                        summary = await self._llm(
+                                            build_summary_prompt(
+                                                long_window_text, short_text
+                                            )
+                                        )
+                                        extra_ctx = (
+                                            f"相关历史摘要：\n{summary}"
+                                            if summary
+                                            else ""
+                                        )
+                                    else:
+                                        extra_ctx = (
+                                            f"相关历史背景：\n{long_window_text}"
+                                        )
+                    except Exception as e:
+                        self._log(
+                            "warning",
+                            f"[ProSocial] run_batch: 长窗口注入失败 group={group_id}: {e}",
+                        )
+
                 # LLM 生成
                 persona_text = str(cfg.get("persona_text", ""))
                 short_window_text = g["context"].short_window_text()
                 prompt = build_reply_prompt(
                     persona_text=persona_text,
                     short_window=short_window_text,
-                    extra_context="",
+                    extra_context=extra_ctx,
                     batch_text=batch_text,
                 )
                 await self._metrics.incr("llm_calls", self._kv_set)

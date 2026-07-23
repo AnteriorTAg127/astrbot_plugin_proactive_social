@@ -66,6 +66,9 @@ class WebBridge:
     ) -> tuple[bool, str]:  # pragma: no cover
         ...
 
+    def get_export_view(self) -> dict:  # pragma: no cover
+        ...
+
 
 def _ok(data: Any) -> tuple[int, dict]:
     """成功响应：200 + {"ok": True, "data": ...}"""
@@ -194,6 +197,12 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         except Exception as e:
             return _err(str(e), 500)
 
+    async def get_export(params: dict, body: dict | None) -> tuple[int, dict]:
+        try:
+            return _ok(bridge.get_export_view())
+        except Exception as e:
+            return _err(str(e), 500)
+
     return {
         "GET /prosocial/status": get_status,
         "GET /prosocial/decisions": get_decisions,
@@ -205,4 +214,5 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         "GET /prosocial/providers": get_providers,
         "GET /prosocial/interests": get_interests,
         "POST /prosocial/interests": post_interests,
+        "GET /prosocial/export": get_export,
     }

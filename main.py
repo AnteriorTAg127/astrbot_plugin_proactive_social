@@ -40,7 +40,6 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, register
 from astrbot.api.web import json_response, request
-from astrbot.core.agent.message import TextPart
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 # 注意：必须用相对导入（from .core.xxx）。AstrBot 把本插件作为
@@ -48,7 +47,6 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 # 绝对导入 `from core.xxx` 会触发 ModuleNotFoundError: No module named 'core'。
 from .core.config_store import SPECIAL_KEYS, ConfigStore
 from .core.interest import InterestManager
-from .core.prompts import build_summary_prompt
 from .core.ratelimit import TokenBucketRateLimiter
 from .core.scheduler import SocialScheduler
 from .core.web import build_handlers
@@ -60,7 +58,7 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.5")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.6")
 class ProSocialPlugin(Star):
     """主动社交插件入口（模块 G）。
 
@@ -109,6 +107,13 @@ class ProSocialPlugin(Star):
     async def initialize(self):
         """AstrBot 加载完成后调用：构造注入回调、scheduler、注册 Web API、启动调度。"""
         try:
+            # F1: 在构造 scheduler 之前先加载 KV 配置，消除重载竞态
+            try:
+                await self._config_store.load(self.get_kv_data)
+                self._log("info", "KV 配置已加载（initialize 阶段）")
+            except Exception as e:
+                self._log("warning", f"加载 KV 配置失败，使用默认值: {e}")
+
             self._llm_fn = self._make_llm_fn()
             self._embed_fn = self._make_embed_fn()
 
@@ -149,20 +154,11 @@ class ProSocialPlugin(Star):
 
     @filter.on_astrbot_loaded()
     async def on_loaded(self):
-        """AstrBot 全部插件加载完成后：从 KV 读取配置覆盖项，更新 ConfigStore 缓存。
+        """AstrBot 全部插件加载完成后：加载兴趣人工过滤列表。
 
-        scheduler 已在 initialize 中启动（用默认配置），load 后缓存更新，
-        scheduler 下次读 _config_getter 自动用新值（热更新，无需重启）。
-        KV 异常/损坏 JSON 时保持默认，不崩溃插件。
-
-        同时加载兴趣人工过滤列表（F20）：interest_mgr 在 __init__ 已创建，
-        从 KV "interest_rejected" 加载后注入，regenerate/apply_rejected 据此排除。
+        F1: 配置 KV 加载已移至 initialize() 中（在构造 scheduler 之前），
+        此处仅保留 interest_rejected 加载。
         """
-        try:
-            await self._config_store.load(self.get_kv_data)
-            self._log("info", "KV 配置已加载")
-        except Exception as e:
-            self._log("warning", f"加载 KV 配置失败，使用默认值: {e}")
         # 加载兴趣 rejected 列表（F20）
         try:
             raw = await self.get_kv_data("interest_rejected")
@@ -323,53 +319,8 @@ class ProSocialPlugin(Star):
     # ------------------------------------------------------------------ #
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
-        """被动 @ 时注入长窗口相关性上下文到 extra_user_content_parts（不污染 system_prompt）。"""
-        try:
-            if self.scheduler is None or self._embed_fn is None:
-                return
-            # 仅被动 @ 时注入
-            if not bool(getattr(event, "is_at_or_wake_command", False)):
-                return
-            group_id = event.get_group_id() or ""
-            if not group_id or not self.scheduler.group_enabled(group_id):
-                return
-            # 受控访问 scheduler._get_group 取 GroupContext（_get_group 是惰性创建方法，
-            # 此处仅借用读取长窗口，不修改 _groups 内部状态）
-            g = self.scheduler._get_group(group_id)
-            ctx = g.get("context")
-            if ctx is None:
-                return
-
-            cfg = self._config_getter()
-            top_n = int(cfg.get("long_window_top_n", 6))
-            long_summarize = bool(cfg.get("long_window_summarize", False))
-
-            # 用短窗口文本嵌入作为 anchor（1 次嵌入调用；被动回复偶尔一次，不走限流）
-            short_text = ctx.short_window_text()
-            if not short_text:
-                return
-            anchor_embs = await self._embed_fn([short_text])
-            anchor_emb = anchor_embs[0] if anchor_embs else None
-
-            long_texts = (
-                ctx.select_long_relevant(anchor_emb, top_n) if anchor_emb else []
-            )
-            if not long_texts:
-                return
-            long_window_text = "\n".join(long_texts)
-
-            if long_summarize:
-                # 用 LLM 生成 3~5 句摘要替代原文（附录 B）
-                summary_prompt = build_summary_prompt(long_window_text, short_text)
-                summary = await self._llm_fn(summary_prompt)
-                context_text = f"相关历史摘要：\n{summary}" if summary else ""
-            else:
-                context_text = f"相关历史背景：\n{long_window_text}"
-
-            if context_text:
-                req.extra_user_content_parts.append(TextPart(text=context_text))
-        except Exception as e:
-            self._log("warning", f"on_llm_request 注入失败: {e}")
+        """F8: 长窗口注入已迁移至 scheduler.run_batch，此钩子保留但不再注入。"""
+        return
 
     # ------------------------------------------------------------------ #
     # after_message_sent 钩子：感知己方发言
@@ -669,7 +620,7 @@ class ProSocialPlugin(Star):
     async def set_config_view(self, patch: dict) -> tuple[bool, str]:
         """委托 ConfigStore.set_many 校验 + 写缓存 + 持久化 KV。返回 (ok, error)。
 
-        特殊键（chat_provider_id）由 ConfigStore.set_many 拒绝
+        特殊键（chat_provider_id / embedding_provider_id）由 ConfigStore.set_many 拒绝
         （"特殊选择器，请在主面板配置"），Web API 不处理特殊键。
         """
         if not isinstance(patch, dict):
@@ -677,6 +628,25 @@ class ProSocialPlugin(Star):
         ok, msg = await self._config_store.set_many(patch, self.put_kv_data)
         if not ok:
             return False, msg
+        # F4: 人设变更触发兴趣重新生成
+        if any(k in patch for k in ("persona_text", "persona_knowledge")):
+            try:
+                new_cfg = self._config_getter()
+                persona_text = str(new_cfg.get("persona_text", ""))
+                persona_knowledge = str(new_cfg.get("persona_knowledge", ""))
+                example_count = int(new_cfg.get("interest_example_count", 3))
+                keyword_count = int(new_cfg.get("interest_keyword_count", 12))
+                await self.interest_mgr.regenerate(
+                    persona_text,
+                    persona_knowledge,
+                    self._llm_fn,
+                    self._embed_fn,
+                    example_count=example_count,
+                    keyword_count=keyword_count,
+                )
+                self._log("info", "人设变更，兴趣数据已重新生成")
+            except Exception as e:
+                self._log("warning", f"人设变更后兴趣重建失败: {e}")
         return True, ""
 
     def get_groups_view(self) -> dict:
@@ -778,14 +748,18 @@ class ProSocialPlugin(Star):
         return self.interest_mgr.export_view()
 
     async def set_interests_view(self, body: dict) -> tuple[bool, str]:
-        """处理兴趣人工过滤操作（F20）。
+        """处理兴趣人工过滤操作（F20）与增删改查（F2）。
 
-        body.action == "reject" : 加 rejected 项并持久化到 KV "interest_rejected"
-        body.action == "apply"  : 调 apply_rejected 重算质心
+        body.action == "reject"  : 加 rejected 项并持久化到 KV "interest_rejected"
+        body.action == "apply"   : 调 apply_rejected 重算质心
+        body.action == "add"     : 调 add_item 添加关键词/示例句子
+        body.action == "update"  : 调 update_item 更新关键词/示例句子
+        body.action == "remove"  : 调 remove_item 移除关键词/示例句子（不进 rejected）
         """
         if not isinstance(body, dict):
             return False, "请求体必须是 JSON 对象"
         action = body.get("action")
+        embed_fn = self._make_embed_fn()
         if action == "reject":
             kind = body.get("kind")
             if kind not in ("example", "keyword"):
@@ -798,19 +772,56 @@ class ProSocialPlugin(Star):
             try:
                 await self.put_kv_data(
                     "interest_rejected",
-                    json.dumps(
-                        self.interest_mgr.get_rejected(), ensure_ascii=False
-                    ),
+                    json.dumps(self.interest_mgr.get_rejected(), ensure_ascii=False),
                 )
             except Exception as e:
                 self._log("warning", f"持久化 interest_rejected 失败: {e}")
                 return False, f"持久化失败: {e}"
             return True, ""
         if action == "apply":
-            embed_fn = self._make_embed_fn()
             ok, msg = await self.interest_mgr.apply_rejected(embed_fn)
             return ok, msg
+        if action == "add":
+            kind = body.get("kind")
+            if kind not in ("example", "high_keyword", "hate_keyword"):
+                return False, "kind 必须是 example、high_keyword 或 hate_keyword"
+            label = str(body.get("label", "") or "")
+            text = str(body.get("text", "") or "")
+            return await self.interest_mgr.add_item(kind, label, text, embed_fn)
+        if action == "update":
+            kind = body.get("kind")
+            if kind not in ("example", "high_keyword", "hate_keyword"):
+                return False, "kind 必须是 example、high_keyword 或 hate_keyword"
+            label = str(body.get("label", "") or "")
+            old_text = str(body.get("old_text", "") or "")
+            new_text = str(body.get("new_text", "") or "")
+            return await self.interest_mgr.update_item(
+                kind, label, old_text, new_text, embed_fn
+            )
+        if action == "remove":
+            kind = body.get("kind")
+            if kind not in ("example", "high_keyword", "hate_keyword"):
+                return False, "kind 必须是 example、high_keyword 或 hate_keyword"
+            label = str(body.get("label", "") or "")
+            text = str(body.get("text", "") or "")
+            return await self.interest_mgr.remove_item(kind, label, text, embed_fn)
         return False, "未知 action"
+
+    def get_export_view(self) -> dict:
+        """导出完整配置+决策记录+疲劳+兴趣的 JSON 供 AI 辅助调参（F11）。"""
+        cfg = self._config_getter()
+        # 移除特殊键
+        export_cfg = {k: v for k, v in cfg.items() if k not in self._SPECIAL_KEYS}
+        return {
+            "config": export_cfg,
+            "decisions": self.get_decisions(500),
+            "fatigue": (
+                self.scheduler._fatigue.snapshot(time.time()) if self.scheduler else {}
+            ),
+            "interests": self.get_interests_view(),
+            "version": "v0.2.6",
+            "export_time": time.time(),
+        }
 
     # ------------------------------------------------------------------ #
     # 指令输出格式化

@@ -24,7 +24,7 @@ import json
 from collections.abc import Awaitable, Callable
 
 # 由 AstrBotConfig 原生承载的特殊选择器键（ConfigStore 不管理这些，主面板原生渲染）
-SPECIAL_KEYS = frozenset({"chat_provider_id"})
+SPECIAL_KEYS = frozenset({"chat_provider_id", "embedding_provider_id"})
 
 
 class ConfigStore:
@@ -40,7 +40,6 @@ class ConfigStore:
         # --- 基础开关 / 人设 ---
         "enable": True,
         "dry_run": False,
-        "embedding_provider_id": "",
         "persona_text": "你是一个友善的群聊机器人。",
         "persona_knowledge": "",
         # --- 群范围 ---
@@ -52,7 +51,7 @@ class ConfigStore:
         "long_window_top_n": 6,
         "long_window_summarize": False,
         # --- 阈值 / 兴趣修正 ---
-        "base_threshold": 0.65,
+        "base_threshold": 0.55,
         "core_interest_modifier": 0.7,
         "general_interest_modifier": 1.0,
         "edge_interest_modifier": 1.3,
@@ -60,11 +59,11 @@ class ConfigStore:
         "personal_threshold": 0.55,
         "hate_similarity_threshold": 0.75,
         # --- 五因子权重 ---
-        "w_int": 1.0,
+        "w_int": 1.2,
         "w_topic": 0.4,
         "w_resp": 0.8,
         "w_cooldown": 0.5,
-        "w_silence": 0.2,
+        "w_silence": 0.35,
         # --- 批次 / 冷却 ---
         "batch_interval_min": 2.0,
         "batch_interval_max": 5.0,
@@ -120,7 +119,7 @@ class ConfigStore:
         "fatigue_medium_modifier": 1.1,
         "fatigue_suppress_enabled": True,
         # --- 惯性 / 等待窗口 ---
-        "after_reply_probability": 0.6,
+        "after_reply_probability": 0.7,
         "probability_duration": 30,
         "wait_window_duration_ms": 3000,
         "wait_window_max_extra": 3,
@@ -133,6 +132,10 @@ class ConfigStore:
         "reply_keyword_ttl_seconds": 60,
         "reply_keyword_min_score_to_trigger": 0.5,
         "reply_keyword_early_clear_low_score": 0.1,
+        # --- 兴趣生成（v0.2.6）---
+        "interest_example_count": 3,
+        "interest_keyword_count": 12,
+        "long_window_inject_proactive": True,
     }
 
     # 类型/范围校验表：(类型, 下限, 上限)；None 表示不校验该侧。
@@ -199,6 +202,10 @@ class ConfigStore:
         "reply_keyword_ttl_seconds": (int, 1, 3600),
         "reply_keyword_min_score_to_trigger": (float, 0.0, 1.0),
         "reply_keyword_early_clear_low_score": (float, 0.0, 1.0),
+        # v0.2.6 兴趣生成 / 长窗口注入
+        "interest_example_count": (int, 1, 10),
+        "interest_keyword_count": (int, 3, 30),
+        "long_window_inject_proactive": (bool, None, None),
     }
 
     # list 类型键（校验时 isinstance list）；schedule 单独特判 dict 列表

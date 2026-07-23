@@ -84,19 +84,21 @@ def test_fusion_both_channels_default_alpha(
     """双通道默认开（α=0.4），无规则信号、score_b 高 → final=0.6*score_b；拉高阈值使 final<threshold 不触发。
 
     覆盖验收 #2：双开时 final = α·score_a + (1−α)·score_b，channel=="fusion"。
+    v0.2.6 注意：w_int 默认值从 1.0 调至 1.2，score_b = s_int * w_int = 1.5 * 1.2 = 1.8。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
         mock_config["glance_enable"] = False
-        # 拉高 base_threshold 使 final(0.9) < threshold(1.4) → 不触发
+        # 拉高 base_threshold 使 final(1.08) < threshold(1.4) → 不触发
         mock_config["base_threshold"] = 2.0
         _set_interest(
             sched,
             make_interest_data,
             centroids={"core": [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]},
         )
-        # batch_emb 与 core 质心重合 → s_int=1.5, score_b=1.5
+        # batch_emb 与 core 质心重合 → s_int=1.5, score_b=1.5*1.2=1.8（w_int=1.2）
         mock_embed.set("符玄配队", [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         await _seed_message(sched, "g1", "符玄配队")
         await sched.run_batch("g1")
@@ -105,10 +107,11 @@ def test_fusion_both_channels_default_alpha(
         assert d["channel"] == "fusion"
         assert d["alpha"] == 0.4  # 默认 fusion_weight_rule
         assert d["score_a"] == 0.0  # 无规则信号（无唤醒词/疑问/@）
-        assert d["score_b"] == pytest.approx(1.5)
-        # final = 0.4*0 + 0.6*1.5 = 0.9
-        assert d["score"] == pytest.approx(0.9)
+        assert d["score_b"] == pytest.approx(1.8)
+        # final = 0.4*0 + 0.6*1.8 = 1.08
+        assert d["score"] == pytest.approx(1.08)
         assert d["triggered"] is False
+
     asyncio.run(_run())
 
 
@@ -119,6 +122,7 @@ def test_fusion_rule_only_channel(
 
     覆盖验收 #1：仅 rule 通道可独立完成唤醒决策，channel=="rule"。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -137,6 +141,7 @@ def test_fusion_rule_only_channel(
         # mentions_bot=True(+70) + matched_word(+30) + 短句(+18) = 118 → score_a=1.0
         assert d["score_a"] == 1.0
         assert d["triggered"] is True
+
     asyncio.run(_run())
 
 
@@ -147,6 +152,7 @@ def test_fusion_vector_only_channel(
 
     覆盖验收 #1：仅 vector 通道可独立完成唤醒决策，channel=="vector"，score_a 仍计算但不影响 final。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -164,10 +170,11 @@ def test_fusion_vector_only_channel(
         d = sched._decision_log.recent(1)[0]
         assert d["channel"] == "vector"
         assert d["alpha"] == 0.0
-        assert d["score_b"] == pytest.approx(1.5)
+        assert d["score_b"] == pytest.approx(1.8)  # s_int=1.5 * w_int=1.2
         # final = 0*score_a + 1.0*score_b = score_b
         assert d["score"] == pytest.approx(d["score_b"])
         assert d["triggered"] is True
+
     asyncio.run(_run())
 
 
@@ -178,6 +185,7 @@ def test_fusion_direct_wakeup_word_high_alpha(
 
     覆盖验收 #3：强唤醒→α=0.8，final 主要由 score_a 决定。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -196,6 +204,7 @@ def test_fusion_direct_wakeup_word_high_alpha(
         # final = 0.8*1.0 + 0.2*score_b；score_b≈0 → final≈0.8
         assert d["score"] == pytest.approx(0.8 * d["score_a"] + 0.2 * d["score_b"])
         assert d["triggered"] is True
+
     asyncio.run(_run())
 
 
@@ -206,6 +215,7 @@ def test_fusion_short_text_expecting_low_alpha(
 
     覆盖验收 #3：短消息+期待→α=0.2，final 主要由 score_b 决定。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -228,9 +238,10 @@ def test_fusion_short_text_expecting_low_alpha(
         assert d["alpha"] == 0.2  # dynamic_alpha_short_expect
         # 无唤醒词/疑问/@ → score_a=0；final 主要由 score_b 决定
         assert d["score_a"] == 0.0
-        assert d["score_b"] == pytest.approx(1.5)  # core s_int=1.5
+        assert d["score_b"] == pytest.approx(1.8)  # core s_int=1.5 * w_int=1.2
         assert d["score"] == pytest.approx(0.2 * d["score_a"] + 0.8 * d["score_b"])
         assert d["triggered"] is True
+
     asyncio.run(_run())
 
 
@@ -247,6 +258,7 @@ def test_block_phrase_suppresses_trigger(
     覆盖验收 #4：屏蔽短语 score_a=0、triggered=False、suppressed_reason=="block_phrase"。
     即便配置了强唤醒词且向量分足够触发，屏蔽短语优先级最高。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -266,6 +278,7 @@ def test_block_phrase_suppresses_trigger(
         assert d["suppressed_reason"] == "block_phrase"
         assert d["triggered"] is False
         assert d["score_a"] == 0.0
+
     asyncio.run(_run())
 
 
@@ -281,6 +294,7 @@ def test_fatigue_consume_on_active_reply(
 
     覆盖验收 #5：连续 consume 后 value 升高、级别升 high。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -291,13 +305,17 @@ def test_fatigue_consume_on_active_reply(
         # 5 次主动回复，每次间隔 3s（>2s 防重窗口，衰减可忽略）
         for i in range(5):
             await sched.on_bot_sent(
-                group_id="g1", text="bot reply", ts=t0 + i * 3.0,
-                reply_type="active", is_proactive=True,
+                group_id="g1",
+                text="bot reply",
+                ts=t0 + i * 3.0,
+                reply_type="active",
+                is_proactive=True,
             )
         # 在最后一次 consume 时刻快照（dt=0 无衰减），5*1.2=6.0 cap 到 limit=5.0 → ratio=1.0 → high
         snap = sched._fatigue.snapshot(now=t0 + 12.0)
         assert snap["value"] > 1.2  # 远高于单次消耗
         assert snap["level"] == "high"
+
     asyncio.run(_run())
 
 
@@ -308,6 +326,7 @@ def test_fatigue_should_suppress_high_non_forced(
 
     覆盖验收 #5：高疲劳且非强制唤醒被抑制。general 命中（非 core/非 @/非 direct）→ is_forced=False。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -329,6 +348,7 @@ def test_fatigue_should_suppress_high_non_forced(
         d = sched._decision_log.recent(1)[0]
         assert d["suppressed_reason"] == "fatigue"
         assert d["triggered"] is False
+
     asyncio.run(_run())
 
 
@@ -339,6 +359,7 @@ def test_fatigue_not_suppress_when_forced(
 
     覆盖验收 #5：强制唤醒不受疲劳抑制。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -359,6 +380,7 @@ def test_fatigue_not_suppress_when_forced(
         d = sched._decision_log.recent(1)[0]
         assert d["triggered"] is True
         assert d["hit_level"] == "core"
+
     asyncio.run(_run())
 
 
@@ -388,6 +410,7 @@ def test_on_bot_sent_dedup_skips_consume(
 
     覆盖验收 #5：防重窗口避免主动发送后框架 after_message_sent 再触发时重复消耗疲劳。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -397,20 +420,27 @@ def test_on_bot_sent_dedup_skips_consume(
         t0 = time.time()
         # 第一次：消耗 1.2
         await sched.on_bot_sent(
-            group_id="g1", text="bot reply", ts=t0, reply_type="active",
+            group_id="g1",
+            text="bot reply",
+            ts=t0,
+            reply_type="active",
         )
         value_after_first = sched._fatigue.state()[0]
         embed_after_first = mock_embed.call_count
         assert value_after_first == 1.2  # fatigue_cost_active
         # 第二次：同 text，ts 距上次 <2s → 防重，跳过 consume/inertia
         await sched.on_bot_sent(
-            group_id="g1", text="bot reply", ts=t0 + 1.0, reply_type="active",
+            group_id="g1",
+            text="bot reply",
+            ts=t0 + 1.0,
+            reply_type="active",
         )
         value_after_second = sched._fatigue.state()[0]
         # 疲劳值未增加（未 consume）
         assert value_after_second == value_after_first
         # 嵌入仍执行（记录己方发言嵌入）
         assert mock_embed.call_count > embed_after_first
+
     asyncio.run(_run())
 
 
@@ -421,6 +451,7 @@ def test_fatigue_persist_restore(
 
     覆盖验收 #5：疲劳状态可持久化往返。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -438,6 +469,7 @@ def test_fatigue_persist_restore(
         sched2 = scheduler_factory()
         sched2._fatigue.restore(fv["value"], fv["last_ts"])
         assert sched2._fatigue.state()[0] == pytest.approx(value_before)
+
     asyncio.run(_run())
 
 
@@ -446,9 +478,7 @@ def test_fatigue_persist_restore(
 # ======================================================================
 
 
-def test_inertia_on_reply_lowers_threshold_multiplier(
-    scheduler_factory, mock_config
-):
+def test_inertia_on_reply_lowers_threshold_multiplier(scheduler_factory, mock_config):
     """on_reply(is_proactive=True) 后 threshold_multiplier<1.0（after_reply 窗口内）。
 
     覆盖验收 #6：回复后窗口内阈值倍率降低（更易触发）。
@@ -459,10 +489,10 @@ def test_inertia_on_reply_lowers_threshold_multiplier(
     # 回复前：倍率 1.0
     assert inertia.threshold_multiplier(now) == 1.0
     inertia.on_reply(now=now, is_proactive=True)
-    # after_reply 窗口内：×(1-0.6×0.5)=0.7；proactive 窗口内：×(1-0.5×0.5)=0.75 → 0.525
+    # after_reply 窗口内：×(1-0.7×0.5)=0.65；proactive 窗口内：×(1-0.5×0.5)=0.75 → 0.4875
     mult = inertia.threshold_multiplier(now + 10)
     assert mult < 1.0
-    assert mult == pytest.approx(0.525)  # 0.7 * 0.75
+    assert mult == pytest.approx(0.4875)  # 0.65 * 0.75
 
 
 def test_inertia_proactive_topic_user_responds(scheduler_factory, mock_config):
@@ -559,14 +589,13 @@ def test_wait_window_close_on_timeout():
 # ======================================================================
 
 
-def test_get_status_includes_fatigue_and_inertia(
-    scheduler_factory, mock_config
-):
+def test_get_status_includes_fatigue_and_inertia(scheduler_factory, mock_config):
     """scheduler.get_status() 返回 dict 含 'fatigue' 键（value/limit/ratio/level），
     每群 groups[*] 含 'inertia' 键。
 
     覆盖验收 #8：状态面板含全局疲劳 + 每群惯性。
     """
+
     async def _run():
         sched = scheduler_factory()
         mock_config["group_mode"] = "all"
@@ -586,6 +615,7 @@ def test_get_status_includes_fatigue_and_inertia(
             "proactive_failure",
         ):
             assert k in g["inertia"]
+
     asyncio.run(_run())
 
 

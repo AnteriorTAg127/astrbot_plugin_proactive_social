@@ -10,11 +10,18 @@
 from __future__ import annotations
 
 
-def build_interest_prompt(persona_text: str, persona_knowledge: str) -> str:
+def build_interest_prompt(
+    persona_text: str,
+    persona_knowledge: str,
+    example_count: int = 3,
+    keyword_count: int = 12,
+) -> str:
     """构建人设兴趣生成 Prompt（PRD 附录 A）。
 
     persona_text     : 人设自然语言描述
     persona_knowledge: 补充知识文档（为空时优雅处理，显示「（无）」）
+    example_count    : 每个兴趣级别生成的示例句子数（默认 3）
+    keyword_count    : 高唤醒关键词生成数量（默认 12）
     """
     # 补充知识为空时不输出 "None"，改用占位「（无）」
     knowledge_block = (
@@ -32,8 +39,8 @@ def build_interest_prompt(persona_text: str, persona_knowledge: str) -> str:
 
 要求：
 1. 将兴趣分为四个级别：core（核心兴趣）、general（一般兴趣）、marginal（边缘兴趣）、hate（反感话题）。
-2. 为每个兴趣生成 2~3 句示例对话，模拟该角色在群聊中可能说或听到的话。
-3. 从 core 兴趣中提炼 10~15 个高唤醒关键词（词或短语）。
+2. 为每个兴趣生成 {example_count} 句示例对话，模拟该角色在群聊中可能说或听到的话。
+3. 从 core 兴趣中提炼 {keyword_count} 个高唤醒关键词（词或短语）。
 4. 仅输出 JSON，不要任何其他文字。
 
 输出 JSON 格式：

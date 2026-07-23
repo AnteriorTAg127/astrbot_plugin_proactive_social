@@ -22,6 +22,7 @@ from core.web import build_handlers
 # MockBridge
 # ---------------------------------------------------------------------- #
 
+
 class _MockBridge:
     """实现 WebBridge 鸭子接口的 mock，行为可配置。"""
 
@@ -77,6 +78,13 @@ class _MockBridge:
         self.last_interests_patch = body
         return self.interests_patch_result
 
+    def get_export_view(self) -> dict:
+        return {
+            "config": self.config_data,
+            "decisions": self.decisions_data,
+            "version": "v0.2.6",
+        }
+
 
 def _run(handler, params=None, body=None):
     """asyncio.run 包装调用 handler，返回 (status, json)。"""
@@ -86,6 +94,7 @@ def _run(handler, params=None, body=None):
 # ---------------------------------------------------------------------- #
 # GET /prosocial/status
 # ---------------------------------------------------------------------- #
+
 
 def test_web_get_status_ok():
     bridge = _MockBridge()
@@ -103,6 +112,7 @@ def test_web_get_status_bridge_exception_500():
 
     def raise_fn():
         raise RuntimeError("boom")
+
     bridge.get_status = raise_fn
     h = build_handlers(bridge)["GET /prosocial/status"]
     status, body = _run(h)
@@ -114,6 +124,7 @@ def test_web_get_status_bridge_exception_500():
 # ---------------------------------------------------------------------- #
 # GET /prosocial/decisions
 # ---------------------------------------------------------------------- #
+
 
 def test_web_get_decisions_default_limit():
     bridge = _MockBridge()
@@ -166,6 +177,7 @@ def test_web_get_decisions_clamp_high():
 # ---------------------------------------------------------------------- #
 # POST /prosocial/dryrun
 # ---------------------------------------------------------------------- #
+
 
 def test_web_post_dryrun_true():
     bridge = _MockBridge()
@@ -235,6 +247,7 @@ def test_web_post_dryrun_bridge_rejects():
 # GET /prosocial/config
 # ---------------------------------------------------------------------- #
 
+
 def test_web_get_config_ok():
     bridge = _MockBridge()
     h = build_handlers(bridge)["GET /prosocial/config"]
@@ -246,6 +259,7 @@ def test_web_get_config_ok():
 # ---------------------------------------------------------------------- #
 # POST /prosocial/config
 # ---------------------------------------------------------------------- #
+
 
 def test_web_post_config_valid_patch():
     bridge = _MockBridge()
@@ -287,6 +301,7 @@ def test_web_post_config_none_body_rejected():
 # GET /prosocial/groups
 # ---------------------------------------------------------------------- #
 
+
 def test_web_get_groups_ok():
     bridge = _MockBridge()
     h = build_handlers(bridge)["GET /prosocial/groups"]
@@ -298,6 +313,7 @@ def test_web_get_groups_ok():
 # ---------------------------------------------------------------------- #
 # POST /prosocial/groups
 # ---------------------------------------------------------------------- #
+
 
 def test_web_post_groups_valid_patch():
     bridge = _MockBridge()
@@ -334,11 +350,12 @@ def test_web_post_groups_none_body_rejected():
 
 
 # ---------------------------------------------------------------------- #
-# 全部 10 handler 存在
+# 全部 11 handler 存在
 # ---------------------------------------------------------------------- #
 
-def test_web_build_handlers_returns_ten():
-    """build_handlers 返回恰好 10 个 handler（v0.2.2 新增 providers/interests GET/POST）。"""
+
+def test_web_build_handlers_returns_eleven():
+    """build_handlers 返回恰好 11 个 handler（v0.2.6 新增 export GET）。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     expected = {
@@ -352,13 +369,14 @@ def test_web_build_handlers_returns_ten():
         "GET /prosocial/providers",
         "GET /prosocial/interests",
         "POST /prosocial/interests",
+        "GET /prosocial/export",
     }
     assert set(handlers.keys()) == expected
-    assert len(handlers) == 10
+    assert len(handlers) == 11
 
 
 def test_web_all_handlers_async_callable():
-    """10 个 handler 都是 async 可调用。"""
+    """11 个 handler 都是 async 可调用。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     for key, h in handlers.items():

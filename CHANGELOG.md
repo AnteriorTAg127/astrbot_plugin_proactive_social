@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.6] - 2026-07-23
+
+### Fixed
+- **配置持久化**（F1）：ConfigStore.load() 移至 initialize() 中调用，解决插件重载后配置丢失问题
+- **Embedding 提供商设置**（F3）：embedding_provider_id 从 ConfigStore 迁移至 _conf_schema.json（AstrBot 原生 select_provider），解决保存后置空且无法修改的问题
+- **人设描述无法获取兴趣关键词**（F4）：set_config_view 检测 persona_text/persona_knowledge 变更时自动触发 interest_mgr.regenerate
+- **空批次摘要仍然求解**（F5）：scheduler.run_batch 对空 batch_text 提前返回，跳过后续嵌入和评分计算
+- **切换配置子标签页丢失更改**（F7）：switchCfgTab 前自动调用 flushAutoSave，保存脏字段
+- **切换子标签页页面卡死**（F10）：switchCfgTab 仅切换 CSS class，不再重建 DOM（77+ 字段一次性重建导致卡顿）
+- **Embedding 欠费仍计算 Score B**（F12）：BatchDecision 新增 embedding_degraded 字段，嵌入失败时标记降级
+
+### Changed
+- **参数触发率优化**（F6）：base_threshold 0.65→0.55、w_int 1.0→1.2、w_silence 0.2→0.35、after_reply_probability 0.6→0.7，降低触发门槛提高活跃度
+- **窗口上下文注入策略**（F8）：移除 on_llm_request 钩子的长窗口注入，改为仅主动触发回复时才注入（long_window_inject_proactive=True）
+- **配置描述完善**（F13）：CONFIG_GROUPS 每组添加 doc 字段和工作原理说明，优化 label/hint 描述
+
+### Added
+- **兴趣关键词增删改查**（F2）：InterestManager 新增 add_item/update_item/remove_item 方法，Dashboard 兴趣面板支持添加/编辑/删除操作
+- **可配置的示例句子和关键词数量**（F9）：新增 interest_example_count（1-10，默认 3）和 interest_keyword_count（3-30，默认 12）配置项
+- **导出完整决策记录 JSON**（F11）：新增 GET /prosocial/export API，导出配置+决策记录+疲劳+兴趣数据，可用于 AI 辅助调参
+- **Dashboard 决策表降级标记**（F12）：embedding_degraded 行在通道列显示灰色「降级」标签
+- 新增 long_window_inject_proactive 配置项（bool，默认 True）
+
 ## [0.2.5] - 2026-07-23
 
 ### Added

@@ -175,6 +175,8 @@ class BatchDecision:
     # --- v0.2.5 回复关键词增量字段（带默认值，向后兼容 v0.2 持久化日志）---
     keyword_match_score: float = 0.0  # 回复关键词匹配得分 [0,1]
     keyword_added_score: float = 0.0  # 回复关键词加分（match × boost）
+    # --- v0.2.6 Embedding 降级标记（带默认值，向后兼容）---
+    embedding_degraded: bool = False  # 本次决策时 Embedding 是否降级
 
 
 @dataclass

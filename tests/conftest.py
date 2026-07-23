@@ -36,6 +36,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
 # mock_embed —— 确定性嵌入函数
 # ======================================================================
 
+
 class _MockEmbed:
     """确定性嵌入函数。
 
@@ -186,6 +187,7 @@ def mock_llm():
 # mock_send —— 发送回调
 # ======================================================================
 
+
 class _MockSend:
     def __init__(self):
         self.calls: list[tuple[str, str]] = []
@@ -223,6 +225,7 @@ def mock_send():
 # mock_kv —— 内存 KV 存储
 # ======================================================================
 
+
 class _MockKV:
     """内存 dict KV，模拟 AstrBot PluginKVStoreMixin。"""
 
@@ -257,6 +260,7 @@ def mock_kv():
 # mock_config —— 可变 live 配置 dict
 # ======================================================================
 
+
 def default_config() -> dict:
     """返回 PRD §3 全部默认配置的可变 dict 副本。
 
@@ -275,18 +279,18 @@ def default_config() -> dict:
         "long_window_size": 20,
         "long_window_top_n": 6,
         "long_window_summarize": False,
-        "base_threshold": 0.65,
+        "base_threshold": 0.55,
         "core_interest_modifier": 0.7,
         "general_interest_modifier": 1.0,
         "edge_interest_modifier": 1.3,
         "expecting_modifier": 0.8,
         "personal_threshold": 0.55,
         "hate_similarity_threshold": 0.75,
-        "w_int": 1.0,
+        "w_int": 1.2,
         "w_topic": 0.4,
         "w_resp": 0.8,
         "w_cooldown": 0.5,
-        "w_silence": 0.2,
+        "w_silence": 0.35,
         "batch_interval_min": 2.0,
         "batch_interval_max": 5.0,
         "cooldown_messages": 4,
@@ -334,7 +338,7 @@ def default_config() -> dict:
         "fatigue_high_modifier": 1.2,
         "fatigue_medium_modifier": 1.1,
         "fatigue_suppress_enabled": True,
-        "after_reply_probability": 0.6,
+        "after_reply_probability": 0.7,
         "probability_duration": 30,
         "wait_window_duration_ms": 3000,
         "wait_window_max_extra": 3,
@@ -347,6 +351,10 @@ def default_config() -> dict:
         "reply_keyword_ttl_seconds": 60,
         "reply_keyword_min_score_to_trigger": 0.5,
         "reply_keyword_early_clear_low_score": 0.1,
+        # v0.2.6 兴趣生成 / 长窗口注入
+        "interest_example_count": 3,
+        "interest_keyword_count": 12,
+        "long_window_inject_proactive": True,
     }
 
 
@@ -359,6 +367,7 @@ def mock_config():
 # ======================================================================
 # mock_log —— 日志回调
 # ======================================================================
+
 
 class _MockLog:
     def __init__(self):
@@ -378,9 +387,7 @@ class _MockLog:
         return [msg for lv, msg in self.calls if lv == level]
 
     def has(self, level: str, substr: str = "") -> bool:
-        return any(
-            lv == level and substr in msg for lv, msg in self.calls
-        )
+        return any(lv == level and substr in msg for lv, msg in self.calls)
 
 
 @pytest.fixture
@@ -391,6 +398,7 @@ def mock_log():
 # ======================================================================
 # tmp_data_dir —— 临时数据目录
 # ======================================================================
+
 
 @pytest.fixture
 def tmp_data_dir(tmp_path) -> Path:
@@ -404,10 +412,11 @@ def tmp_data_dir(tmp_path) -> Path:
 # make_interest_data —— InterestData 工厂
 # ======================================================================
 
+
 @pytest.fixture
 def make_interest_data():
     """返回构造 InterestData 的辅助函数，便于测试快速搭建兴趣数据。"""
-    from core.models import InterestData, InterestItem, InterestLevel
+    from core.models import InterestData, InterestItem
 
     def _make(
         centroids: dict[str, list[float]] | None = None,
@@ -436,6 +445,7 @@ def make_interest_data():
 # ======================================================================
 # scheduler_factory —— SocialScheduler 工厂
 # ======================================================================
+
 
 @pytest.fixture
 def scheduler_factory(
@@ -478,6 +488,7 @@ def scheduler_factory(
 # ======================================================================
 # 辅助：当前日期字符串（跨日测试用）
 # ======================================================================
+
 
 @pytest.fixture
 def today_str():
