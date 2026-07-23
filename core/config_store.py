@@ -329,6 +329,61 @@ class ConfigStore:
             await self._db.close()
             self._db = None
 
+    # ------------------------------------------------------------------ #
+    # 通用 KV 存储（复用同一 SQLite db，替代 AstrBot KV 存储）
+    # ------------------------------------------------------------------ #
+    # metrics / decision_log / fatigue / group_enable / interest_rejected
+    # 等非配置数据经此存取，每个 key 存一段 JSON 串。与配置的 "main" 键共用
+    # config 表，彻底脱离 AstrBot KV（避免插件重载时 KV 不可用/被清空）。
+
+    async def get_kv(self, key: str, default=None):
+        """通用 KV 读取：从 SQLite 读 key 对应的 JSON 值。
+
+        key 不存在 / 异常 / 非法 JSON 时返回 ``default``。
+        """
+        try:
+            db = await self._ensure_db()
+            async with db.execute(
+                "SELECT value FROM config WHERE key = ?", (key,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return default
+            raw = row[0]
+            if raw is None:
+                return default
+            try:
+                return json.loads(raw) if isinstance(raw, str) else raw
+            except (json.JSONDecodeError, TypeError):
+                return default
+        except Exception:
+            return default
+
+    async def set_kv(self, key: str, value) -> None:
+        """通用 KV 写入：将 value 序列化为 JSON 存入 SQLite。
+
+        value 必须是 JSON 可序列化对象（dict/list/str/int/float/bool/None）。
+        """
+        try:
+            db = await self._ensure_db()
+            await db.execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+                (key, json.dumps(value, ensure_ascii=False)),
+            )
+            await db.commit()
+        except Exception:
+            # 写失败不抛（调用方自行决定是否感知；与原 KV 行为一致）
+            pass
+
+    async def delete_kv(self, key: str) -> None:
+        """通用 KV 删除（可选操作，目前未使用但保留接口）。"""
+        try:
+            db = await self._ensure_db()
+            await db.execute("DELETE FROM config WHERE key = ?", (key,))
+            await db.commit()
+        except Exception:
+            pass
+
     def _validate(self, key: str, value) -> tuple[bool, str]:
         """校验单键，返回 ``(ok, msg)``。
 

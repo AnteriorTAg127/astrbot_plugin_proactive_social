@@ -4,15 +4,24 @@
 
 ### Fixed
 - **配置持久化彻底修复**（F1）：ConfigStore 从 AstrBot KV 存储迁移到独立 SQLite 数据库（config.db），彻底解决插件重载后配置丢失的问题。KV 存储在插件重载时可能被清空或不可用，改用 aiosqlite 直接管理数据库文件后，配置持久化完全由插件自身掌控。
+- **全部 KV 数据迁移到 SQLite**（F2）：metrics / decision_log / fatigue / group_enable / interest_rejected 从 AstrBot KV 迁移到 SQLite，ConfigStore 新增 `get_kv`/`set_kv`/`delete_kv` 通用 KV 方法。修复 `get_kv_data("interest_rejected")` 缺少 `default` 参数的报错，以及重载后 KV 不可用导致不采集消息、不触发主动发言的严重 bug。
+- **旧数据自动迁移**（F3）：首次启动 v0.2.7 时自动从旧 AstrBot KV 读取全部数据（config / group_enable / decision_log / metrics / fatigue / interest_rejected）迁移到 SQLite，避免配置回到默认值（whitelist + 空白名单）导致群未启用。迁移完成后标记 `_kv_migrated` 不再重复。
+- **配置向导保存卡顿**（F4）：set_config_view 中人设变更触发的 `interest_mgr.regenerate()` 从 `await` 改为 `asyncio.create_task()` 后台执行，API 立即返回，向导保存秒回。
+- **_conf_schema.json 排版问题**（F5）：`description` 从长解释改为简短标签（如「聊天模型」），解释性内容移到 `hint` 字段，修复 AstrBot 设置面板中描述被渲染为标题的问题。
+- **Embedding 选择器只能选 LLM**（F6）：`embedding_provider_id` 移除 `_special: "select_provider"`（只选 LLM Provider 不选 Embedding Provider），改为普通 string 输入框，用户手动填 ID，留空则自动选第一个可用 Embedding Provider。
 
 ### Changed
 - ConfigStore 构造函数从 `ConfigStore()` 改为 `ConfigStore(db_path: Path)`，需传入 SQLite 数据库文件路径
-- `ConfigStore.load()` 不再需要 `kv_get_fn` 回调参数
-- `ConfigStore.set_many(updates)` 不再需要 `kv_set_fn` 回调参数
+- `ConfigStore.load()` 不再需要 `kv_get_fn` 回调参数，直接读 SQLite
+- `ConfigStore.set_many(updates)` 不再需要 `kv_set_fn` 回调参数，直接写 SQLite
 - 新增 `ConfigStore.close()` 方法，在插件 `terminate()` 中关闭数据库连接
+- `main.py` 的 `_kv_get`/`_kv_set` 改为包 `ConfigStore.get_kv`/`set_kv`，彻底脱离 AstrBot KV
+- `main.py` 的 `on_loaded` 和 `set_interests_view` 中的 KV 调用改用 `ConfigStore.get_kv`/`set_kv`
 - `main.py` 的 `terminate()` 增加 `config_store.close()` 调用
 
 ### Added
+- `ConfigStore.get_kv(key, default)` / `set_kv(key, value)` / `delete_kv(key)` 通用 KV 方法
+- `main.py` 新增 `_migrate_kv_to_sqlite()` 数据迁移方法
 - `aiosqlite` 加入 `requirements.txt`
 - 新增 `test_f1_config_survives_reload` 测试：模拟插件重载后配置不丢失
 

@@ -210,6 +210,11 @@ __marimo__/
 开发/
 开发/api_config.json
 
+
+.qoder/
+.trae/
+.claude/
+
 # CodeGraph 索引（生成的二进制数据库，勿提交）
 .codegraph/
 
