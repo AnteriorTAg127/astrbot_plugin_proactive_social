@@ -41,13 +41,30 @@ class AdaptiveThreshold:
         self._since_eval: int = 0
         self._mult: float = 1.0
 
-    def record(self, score: float, triggered: bool) -> None:
-        """记录一次批次决策结果，满 EVAL_EVERY 自动步进。"""
+    def record(self, score: float, triggered: bool) -> bool:
+        """记录一次批次决策结果，满 EVAL_EVERY 自动步进。
+
+        返回值：True 当且仅当本次调用触发了 _evaluate()（即 _since_eval 归零）；
+        其余情况返回 False。调用方可据此联动 LLM 自动调参等周期性副作用。
+        """
         self._scores.append(score)
         self._triggered.append(triggered)
         self._since_eval += 1
+        evaluated = False
         if self._since_eval >= self.EVAL_EVERY:
             self._evaluate()
+            evaluated = True
+        return evaluated
+
+    def window_rate(self) -> float:
+        """返回当前窗口触发率（triggered 占比）；空窗口返回 0.0。"""
+        if not self._triggered:
+            return 0.0
+        return sum(1 for t in self._triggered if t) / len(self._triggered)
+
+    def window_size(self) -> int:
+        """返回当前窗口样本数。"""
+        return len(self._triggered)
 
     def _evaluate(self) -> None:
         """评估最近 EVAL_EVERY 条的触发率并步进 mult。"""

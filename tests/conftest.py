@@ -360,6 +360,14 @@ def default_config() -> dict:
         "adaptive_threshold_enabled": True,
         "max_proactive_per_hour": 5,
         "max_proactive_per_day": 20,
+        # v0.2.9 LLM 调参全权接管 + 自动触发 + 速率限制
+        "autotune_safe_rate_hi": 0.30,
+        "autotune_safe_rate_lo": 0.05,
+        "autotune_auto_trigger_enabled": True,
+        "autotune_auto_apply": False,
+        "autotune_min_decisions": 30,
+        "autotune_cooldown_hours": 3.0,
+        "autotune_max_per_day": 4,
     }
 
 
