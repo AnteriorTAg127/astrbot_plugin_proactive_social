@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0] - 2026-07-24
+
+### Changed
+- main.py 采用 mixin 模式重构：1756 行 → 305 行，8 类职责拆分到 6 个新文件（core/{callbacks,autotune,web_bridge,commands,formatting,migration}.py），ProSocialPlugin 多继承 CommandsMixin/WebBridgeMixin/TuneMixin/CallbacksMixin
+- core/scheduler.py 采用 mixin 模式重构：1786 行 → 704 行，6+ 类职责拆分到 3 个新文件（core/{batch_pipeline,bot_events,autotune_collector}.py），SocialScheduler 多继承 BatchPipelineMixin/BotEventsMixin/AutotuneStatsMixin
+- /prosocial 指令组注册搬回 main.py（处理逻辑仍在 CommandsMixin._handle_*），避免框架将指令识别为 core.commands 模块
+- initialize() 增加孤儿 handler 自清理逻辑，规避框架 _unbind_plugin 清理盲区（热重载时清理遗留 handler）
+
+### Notes
+- 纯内部重构，不改变任何对外行为、配置、数据格式
+- 477 既有测试零回归
+- 每个文件 ≤ 800 行，单一职责聚焦（batch_pipeline.py 844 行为例外，run_batch 单方法 576 行无法再拆）
+
 ## [0.2.9] - 2026-07-24
 
 ### Added
