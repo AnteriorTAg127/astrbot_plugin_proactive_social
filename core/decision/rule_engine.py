@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .models import RuleSignal
+from ..common.models import RuleSignal
 
 
 def implicit_reply_score(

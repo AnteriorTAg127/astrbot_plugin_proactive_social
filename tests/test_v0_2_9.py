@@ -265,8 +265,8 @@ def _make_scheduler(
     与 conftest.scheduler_factory 行为一致：模拟 start() 的预加载
     （group_enable_cache={}）但不真正 start()。
     """
-    from core.interest import InterestManager
-    from core.ratelimit import TokenBucketRateLimiter
+    from core.decision.interest import InterestManager
+    from core.storage.ratelimit import TokenBucketRateLimiter
     from core.scheduler import SocialScheduler
 
     interest_mgr = InterestManager(tmp_data_dir, mock_log)
@@ -400,7 +400,7 @@ def _make_mock_plugin(
 
         async def set_many(self, patch: dict) -> tuple[bool, str]:
             # 简化校验：仅做 isinstance + 范围粗校验，DENYLIST 已在 main.py 过滤
-            from core.config_store import ConfigStore
+            from core.storage.config_store import ConfigStore
 
             for k, v in patch.items():
                 if k not in ConfigStore.DEFAULT_CONFIG:
@@ -447,7 +447,7 @@ def _make_mock_plugin(
     plugin.data_dir = tmp_data_dir
     plugin._last_tune_suggestion = None
     # v0.2.9 F4：TuneRateLimiter 单例
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     plugin._tune_limiter = TuneRateLimiter()
     # scheduler mock —— 仅 collect_tune_stats 返回空统计
@@ -491,7 +491,7 @@ def _make_mock_plugin(
 
 def test_tune_rate_limiter_allow_first_call():
     """首次调用 allow 返回 (True, "")（无 cooldown / 无 daily_cap）。"""
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     limiter = TuneRateLimiter()
     ok, reason = limiter.allow(1000.0, 3.0, 4)
@@ -501,7 +501,7 @@ def test_tune_rate_limiter_allow_first_call():
 
 def test_tune_rate_limiter_cooldown_rejects():
     """冷却期内调用 → (False, "cooldown")。"""
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     limiter = TuneRateLimiter()
     # 第一次调用 + record
@@ -514,7 +514,7 @@ def test_tune_rate_limiter_cooldown_rejects():
 
 def test_tune_rate_limiter_daily_cap_rejects():
     """达到日上限 → (False, "daily_cap")。"""
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     limiter = TuneRateLimiter()
     # 填满 4 次日配额（无 cooldown 限制：cooldown=0）
@@ -527,7 +527,7 @@ def test_tune_rate_limiter_daily_cap_rejects():
 
 def test_tune_rate_limiter_cooldown_zero_means_unlimited():
     """cooldown=0 表示不限冷却——record 后立即可再调。"""
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     limiter = TuneRateLimiter()
     limiter.record(1000.0)
@@ -539,7 +539,7 @@ def test_tune_rate_limiter_cooldown_zero_means_unlimited():
 
 def test_tune_rate_limiter_max_per_day_zero_means_unlimited():
     """max_per_day=0 表示不限日数——历史再多也通过。"""
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     limiter = TuneRateLimiter()
     # 填 100 条记录（24h 内）
@@ -553,7 +553,7 @@ def test_tune_rate_limiter_max_per_day_zero_means_unlimited():
 
 def test_tune_rate_limiter_record_increments_history():
     """record 后 history 长度增加，last_call 更新。"""
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     limiter = TuneRateLimiter()
     assert limiter._last_call is None
@@ -567,7 +567,7 @@ def test_tune_rate_limiter_record_increments_history():
 
 def test_tune_rate_limiter_state_restore_roundtrip():
     """state/restore 往返一致。"""
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     a = TuneRateLimiter()
     a.record(1000.0)
@@ -587,7 +587,7 @@ def test_tune_rate_limiter_state_restore_roundtrip():
 
 def test_tune_rate_limiter_last_call_none_skips_cooldown():
     """_last_call=None（从未 record）时跳过冷却检查，allow 通过。"""
-    from core.tune_controller import TuneRateLimiter
+    from core.storage.tune_controller import TuneRateLimiter
 
     limiter = TuneRateLimiter()
     # 从未 record → _last_call=None → 跳过 cooldown
@@ -605,7 +605,7 @@ def test_tune_rate_limiter_last_call_none_skips_cooldown():
 
 def test_adaptive_record_returns_true_on_eval():
     """record 返回 True：满 EVAL_EVERY=20 时触发评估。"""
-    from core.adaptive import AdaptiveThreshold
+    from core.decision.adaptive import AdaptiveThreshold
 
     a = AdaptiveThreshold()
     # 前 19 条不评估
@@ -617,7 +617,7 @@ def test_adaptive_record_returns_true_on_eval():
 
 def test_adaptive_record_returns_false_before_eval():
     """record 返回 False：未满 EVAL_EVERY 不评估。"""
-    from core.adaptive import AdaptiveThreshold
+    from core.decision.adaptive import AdaptiveThreshold
 
     a = AdaptiveThreshold()
     for i in range(19):
@@ -629,7 +629,7 @@ def test_adaptive_record_returns_false_before_eval():
 
 def test_adaptive_window_rate_empty_returns_zero():
     """window_rate 空窗口返回 0.0。"""
-    from core.adaptive import AdaptiveThreshold
+    from core.decision.adaptive import AdaptiveThreshold
 
     a = AdaptiveThreshold()
     assert a.window_rate() == 0.0
@@ -638,7 +638,7 @@ def test_adaptive_window_rate_empty_returns_zero():
 
 def test_adaptive_window_rate_with_samples():
     """window_rate 有样本时返回正确触发率。"""
-    from core.adaptive import AdaptiveThreshold
+    from core.decision.adaptive import AdaptiveThreshold
 
     a = AdaptiveThreshold()
     # 4 条 triggered=True + 6 条 triggered=False → rate = 0.4
@@ -687,7 +687,7 @@ def test_tune_denylist_contains_six_keys():
 def test_writable_keys_excludes_denylist():
     """_writable_keys = DEFAULT_CONFIG - DENYLIST，不含任何 DENYLIST 键。"""
     ProSocialPlugin = _load_main_prosocial_plugin()
-    from core.config_store import ConfigStore
+    from core.storage.config_store import ConfigStore
 
     writable = ProSocialPlugin._writable_keys()
     # 长度 = DEFAULT_CONFIG 长度 - 5（group_mode/group_whitelist/enable/dry_run 在 DEFAULT_CONFIG；

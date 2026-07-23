@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-from core.models import TrackerEntry
-from core.tracker import PersonalTracker
+from core.common.models import TrackerEntry
+from core.tracking.tracker import PersonalTracker
 
 
 def _entry(uid: str, created_ts: float = 0.0, streak: int = 0) -> TrackerEntry:

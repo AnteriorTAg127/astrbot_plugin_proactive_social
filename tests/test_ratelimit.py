@@ -16,7 +16,7 @@ import time
 
 import pytest
 
-from core.ratelimit import TokenBucketRateLimiter
+from core.storage.ratelimit import TokenBucketRateLimiter
 
 
 # ---------------------------------------------------------------------- #
@@ -50,7 +50,7 @@ def test_ratelimit_try_acquire_refills_after_time(monkeypatch):
     # 模拟时间前进 5 秒 → 补 5 个令牌
     base = time.monotonic()
     monkeypatch.setattr(
-        "core.ratelimit.time.monotonic", lambda: base + 5.0
+        "core.storage.ratelimit.time.monotonic", lambda: base + 5.0
     )
     assert rl.try_acquire() is True  # 补充后可取
 
@@ -65,7 +65,7 @@ def test_ratelimit_try_acquire_refill_capped_at_capacity(monkeypatch):
     # 时间前进 100 秒（远超容量所需）→ 最多补到 10
     base = time.monotonic()
     monkeypatch.setattr(
-        "core.ratelimit.time.monotonic", lambda: base + 100.0
+        "core.storage.ratelimit.time.monotonic", lambda: base + 100.0
     )
     rl._refill()
     assert rl._tokens <= 10.0
@@ -148,7 +148,7 @@ def test_ratelimit_set_rate_allows_more_acquires():
     rl.set_rate(120)  # 120/min = 2/sec，容量 120
     # 容量提升后随时间能补到更多
     base = time.monotonic()
-    import core.ratelimit as rl_mod
+    import core.storage.ratelimit as rl_mod
     orig_monotonic = rl_mod.time.monotonic
     rl_mod.time.monotonic = lambda: base + 60.0  # 时间前进 60 秒
     try:

@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
-from .models import BatchDecision, ScoreFactors
+from ..common.models import BatchDecision, ScoreFactors
 
 
 class DecisionLog:

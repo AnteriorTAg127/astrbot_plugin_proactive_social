@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import pytest
 
-from core.engine import WakeEngine
-from core.models import InterestData, InterestItem, InterestLevel
+from core.decision.engine import WakeEngine
+from core.common.models import InterestData, InterestItem, InterestLevel
 
 
 # ---------------------------------------------------------------------- #
@@ -399,7 +399,7 @@ def test_engine_rule_fallback_empty_keywords():
 
 def test_models_dataclass_instantiation():
     """models.py 各 dataclass 可正常实例化（字段契约验证）。"""
-    from core.models import (
+    from core.common.models import (
         BatchDecision,
         BatchRecord,
         LogicalMessage,
@@ -431,7 +431,7 @@ def test_models_dataclass_instantiation():
 
 
 def GroupState_IDENTITY():
-    from core.models import GroupState, InterestLevel
+    from core.common.models import GroupState, InterestLevel
     assert GroupState.IDLE.value == "idle"
     assert GroupState.EXPECTING_REPLY.value == "expecting_reply"
     assert InterestLevel.CORE.value == "core"

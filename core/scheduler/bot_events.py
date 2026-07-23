@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import asyncio
 
-from .models import GroupState, TrackerEntry
-from .reply_keyword import ReplyKeywordManager
+from ..common.models import GroupState, TrackerEntry
+from ..decision.reply_keyword import ReplyKeywordManager
 
 # on_bot_sent 防重窗口：同 text 距上次 < 此秒数跳过 fatigue/inertia（v0.2）
 _BOT_SENT_DEDUP_SEC = 2.0

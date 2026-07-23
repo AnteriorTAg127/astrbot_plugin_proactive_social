@@ -19,13 +19,13 @@ from pathlib import Path
 
 import pytest
 
-from core.interest import (
+from core.decision.interest import (
     InterestManager,
     _compute_persona_hash,
     _parse_interests_json,
     _strip_json_fence,
 )
-from core.models import InterestData, InterestItem, InterestLevel
+from core.common.models import InterestData, InterestItem, InterestLevel
 
 
 # ---------------------------------------------------------------------- #

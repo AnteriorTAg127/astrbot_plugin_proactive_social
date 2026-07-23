@@ -17,14 +17,14 @@ import random
 import time
 from collections.abc import Callable
 
-from .buffer import GroupBuffer
-from .engine import WakeEngine
-from .fusion import FusionEngine
-from .inertia import WaitWindow
-from .models import BatchDecision, BatchRecord, GroupState, ScoreFactors
-from .prompts import build_glance_reply_prompt, build_reply_prompt
-from .reply_keyword import ReplyKeywordManager
-from .rule_engine import RuleEngine
+from ..common.models import BatchDecision, BatchRecord, GroupState, ScoreFactors
+from ..common.prompts import build_glance_reply_prompt, build_reply_prompt
+from ..decision.engine import WakeEngine
+from ..decision.fusion import FusionEngine
+from ..decision.inertia import WaitWindow
+from ..decision.reply_keyword import ReplyKeywordManager
+from ..decision.rule_engine import RuleEngine
+from ..tracking.buffer import GroupBuffer
 
 
 class BatchPipelineMixin:
@@ -299,7 +299,7 @@ class BatchPipelineMixin:
                 )
             except Exception:
                 # 兜底：规则引擎异常不阻塞决策，按无信号处理
-                from .models import RuleSignal
+                from ..common.models import RuleSignal
 
                 rule_signal = RuleSignal(
                     score_a=0.0,
@@ -339,7 +339,7 @@ class BatchPipelineMixin:
                     )
                 except Exception:
                     # 兜底：融合异常退化为仅通道 B
-                    from .models import FusionResult
+                    from ..common.models import FusionResult
 
                     fusion = FusionResult(
                         score_a=rule_signal.score_a,
@@ -353,7 +353,7 @@ class BatchPipelineMixin:
                     )
             else:
                 # 降级路径不参与融合（保持 v0.1 rule_fallback 语义）
-                from .models import FusionResult
+                from ..common.models import FusionResult
 
                 fusion = FusionResult(
                     score_a=rule_signal.score_a,
@@ -574,7 +574,9 @@ class BatchPipelineMixin:
                                         cfg.get("long_window_summarize", False)
                                     )
                                     if long_summarize:
-                                        from .prompts import build_summary_prompt
+                                        from ..common.prompts import (
+                                            build_summary_prompt,
+                                        )
 
                                         summary = await self._llm(
                                             build_summary_prompt(

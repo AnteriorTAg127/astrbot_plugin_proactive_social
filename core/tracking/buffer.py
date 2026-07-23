@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .models import LogicalMessage
+from ..common.models import LogicalMessage
 
 # 短消息判定阈值：≤5 字
 _SHORT_TEXT_MAX_LEN = 5

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from core.replay import ReplayEngine, _check_stop
+from core.scheduler.replay import ReplayEngine, _check_stop
 
 
 def _valid_line(ts: float = 1.0, group_id: str = "g1",

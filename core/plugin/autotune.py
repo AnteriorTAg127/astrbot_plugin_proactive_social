@@ -17,7 +17,7 @@ import asyncio
 import json
 import time
 
-from .config_store import ConfigStore
+from ..storage.config_store import ConfigStore
 
 # v0.2.9 F2：LLM 调参安全敏感键 denylist——这些键 LLM 不可改（会破坏运行）。
 # 其余 DEFAULT_CONFIG 全部键（约 70 项）均允许 LLM 经 llm_autotune 修改（denylist 模式）。

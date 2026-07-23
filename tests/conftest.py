@@ -429,7 +429,7 @@ def tmp_data_dir(tmp_path) -> Path:
 @pytest.fixture
 def make_interest_data():
     """返回构造 InterestData 的辅助函数，便于测试快速搭建兴趣数据。"""
-    from core.models import InterestData, InterestItem
+    from core.common.models import InterestData, InterestItem
 
     def _make(
         centroids: dict[str, list[float]] | None = None,
@@ -470,8 +470,8 @@ def scheduler_factory(
     测试可经 mock_config 改配置、mock_embed 注入向量、mock_kv 模拟 KV。
     工厂每次调用创建全新 scheduler（不共享状态）。
     """
-    from core.interest import InterestManager
-    from core.ratelimit import TokenBucketRateLimiter
+    from core.decision.interest import InterestManager
+    from core.storage.ratelimit import TokenBucketRateLimiter
     from core.scheduler import SocialScheduler
 
     def _make() -> SocialScheduler:

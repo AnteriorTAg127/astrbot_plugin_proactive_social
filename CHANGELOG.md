@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.1] - 2026-07-24
+
+### Changed
+- Core 目录按职责分类到 6 个子包：`common/`（models/prompts 共享数据结构）+ `decision/`（adaptive/engine/fatigue/fusion/inertia/interest/reply_keyword/rule_engine 决策引擎 8 文件）+ `storage/`（config_store/metrics/migration/ratelimit/tune_controller 存储与限流 5 文件）+ `tracking/`（buffer/context/tracker 上下文与跟踪 3 文件）+ `scheduler/`（scheduler/batch_pipeline/bot_events/autotune_collector/replay 调度器与 mixin 5 文件）+ `plugin/`（autotune/callbacks/commands/formatting/web/web_bridge 插件 mixin 6 文件）
+- 全部 import 路径更新为子包完整路径：同子包内 `from .module` 单点相对；跨子包 `from ..subpackage.module` 双点相对
+- `core/scheduler/__init__.py` re-export `SocialScheduler`，保持 `from core.scheduler import SocialScheduler` 既有调用方式不变
+- 修复 `core/scheduler/batch_pipeline.py` 4 处 except 兜底分支的相对 import 遗漏（`from .models` → `from ..common.models`、`from .prompts` → `from ..common.prompts`）
+- 修复 `tests/test_ratelimit.py` 2 处 monkeypatch 字符串路径（`core.ratelimit.` → `core.storage.ratelimit.`）
+
+### Notes
+- 纯内部目录重组，不改变任何对外行为、配置、数据格式
+- 477 既有测试零回归
+- v0.3.0 的 9 个 mixin 文件（callbacks/autotune/web_bridge/commands/formatting/migration/batch_pipeline/bot_events/autotune_collector）原位于 `core/` 根，本次归入对应职责子包
+
 ## [0.3.0] - 2026-07-24
 
 ### Changed

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 
-from core.web import build_handlers
+from core.plugin.web import build_handlers
 
 # ---------------------------------------------------------------------- #
 # MockBridge

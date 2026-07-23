@@ -32,7 +32,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from core.config_store import SPECIAL_KEYS, ConfigStore
+from core.storage.config_store import SPECIAL_KEYS, ConfigStore
 
 # ======================================================================
 # 辅助：构造临时 ConfigStore

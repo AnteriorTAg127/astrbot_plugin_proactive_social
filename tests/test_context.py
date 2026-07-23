@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import pytest
 
-from core.context import GroupContext, _BOT_USER_ID
-from core.models import BatchRecord, LogicalMessage
+from core.tracking.context import GroupContext, _BOT_USER_ID
+from core.common.models import BatchRecord, LogicalMessage
 
 
 def _msg(uid: str, nick: str, text: str, ts: float, gid: str = "g1") -> LogicalMessage:

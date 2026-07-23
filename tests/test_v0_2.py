@@ -22,7 +22,7 @@ import asyncio
 import time
 
 import pytest
-from core.models import GroupState
+from core.common.models import GroupState
 
 # ======================================================================
 # 辅助：喂入消息并取消自动调度的批次任务（避免与手动 run_batch 竞争）
@@ -540,7 +540,7 @@ def test_wait_window_collect_and_close_on_max_extra():
 
     覆盖验收 #7：窗口收满 max_extra 条后关闭。
     """
-    from core.inertia import WaitWindow
+    from core.decision.inertia import WaitWindow
 
     ww = WaitWindow(duration_ms=3000, max_extra=3)
     ww.open(now_ms=1000.0, trigger_user_id="u1")
@@ -560,7 +560,7 @@ def test_wait_window_close_on_at():
 
     覆盖验收 #7：@ 消息强制关闭等待窗口。
     """
-    from core.inertia import WaitWindow
+    from core.decision.inertia import WaitWindow
 
     ww = WaitWindow(duration_ms=3000, max_extra=3)
     ww.open(now_ms=1000.0, trigger_user_id="u1")
@@ -574,7 +574,7 @@ def test_wait_window_close_on_timeout():
 
     覆盖验收 #7：窗口超时关闭。
     """
-    from core.inertia import WaitWindow
+    from core.decision.inertia import WaitWindow
 
     ww = WaitWindow(duration_ms=3000, max_extra=3)
     ww.open(now_ms=1000.0, trigger_user_id="u1")

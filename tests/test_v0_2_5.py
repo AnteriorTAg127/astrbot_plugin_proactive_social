@@ -24,10 +24,10 @@ from __future__ import annotations
 import asyncio
 import time
 
-import core.reply_keyword as rk_mod
+import core.decision.reply_keyword as rk_mod
 import pytest
-from core.models import TrackerEntry
-from core.reply_keyword import ReplyKeywordCache, ReplyKeywordManager
+from core.common.models import TrackerEntry
+from core.decision.reply_keyword import ReplyKeywordCache, ReplyKeywordManager
 
 # ReplyKeywordManager.extract 单元测试默认配置
 DEFAULT_CFG = {

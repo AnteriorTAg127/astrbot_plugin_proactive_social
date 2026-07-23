@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.buffer import GroupBuffer, _is_short_text
+from core.tracking.buffer import GroupBuffer, _is_short_text
 
 
 # ---------------------------------------------------------------------- #

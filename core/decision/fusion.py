@@ -7,7 +7,7 @@ final = alpha * score_a + (1 - alpha) * score_b
 
 from __future__ import annotations
 
-from .models import FusionResult
+from ..common.models import FusionResult
 
 
 class FusionEngine:

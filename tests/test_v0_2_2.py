@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import asyncio
 
-from core.interest import InterestManager
-from core.models import InterestLevel
-from core.web import build_handlers
+from core.decision.interest import InterestManager
+from core.common.models import InterestLevel
+from core.plugin.web import build_handlers
 
 # ---------------------------------------------------------------------- #
 # MockBridge for web tests

@@ -29,7 +29,7 @@ import json
 import time
 from datetime import datetime
 
-from core.models import GroupState, TrackerEntry
+from core.common.models import GroupState, TrackerEntry
 
 # ======================================================================
 # 辅助：喂入消息并取消自动调度的批次任务（避免与手动 run_batch 竞争）

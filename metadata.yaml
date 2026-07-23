@@ -1,7 +1,7 @@
 name: astrbot_plugin_proactive_social
 display_name: 主动社交
 desc: 用向量语义模型替代 LLM 做唤醒决策，让机器人在多群组中像真人一样主动插话、无 @ 接话，以极低 LLM 成本维持自然社交节奏。
-version: v0.3.0
+version: v0.3.1
 author: AnteriorTag127
 repo: 'https://github.com/AnteriorTAg127/astrbot_plugin_proactive_social'
 support_platforms:

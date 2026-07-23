@@ -31,19 +31,20 @@ from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, register
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
+from .core.decision.interest import InterestManager
+
 # 注意：必须用相对导入（from .core.xxx）。AstrBot 把本插件作为
 # data.plugins.astrbot_plugin_proactive_social.main 子包加载，插件目录不在 sys.path 顶层，
 # 绝对导入 `from core.xxx` 会触发 ModuleNotFoundError: No module named 'core'。
-from .core.autotune import TuneMixin
-from .core.callbacks import CallbacksMixin
-from .core.commands import CommandsMixin
-from .core.config_store import SPECIAL_KEYS, ConfigStore
-from .core.interest import InterestManager
-from .core.migration import migrate_kv_to_sqlite
-from .core.ratelimit import TokenBucketRateLimiter
+from .core.plugin.autotune import TuneMixin
+from .core.plugin.callbacks import CallbacksMixin
+from .core.plugin.commands import CommandsMixin
+from .core.plugin.web_bridge import WebBridgeMixin
 from .core.scheduler import SocialScheduler
-from .core.tune_controller import TuneRateLimiter
-from .core.web_bridge import WebBridgeMixin
+from .core.storage.config_store import SPECIAL_KEYS, ConfigStore
+from .core.storage.migration import migrate_kv_to_sqlite
+from .core.storage.ratelimit import TokenBucketRateLimiter
+from .core.storage.tune_controller import TuneRateLimiter
 
 # 插件名（与 metadata.yaml 一致，用于 Web API 路由前缀与数据目录）
 _PLUGIN_NAME = "astrbot_plugin_proactive_social"
@@ -52,7 +53,7 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.3.0")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.3.1")
 class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, Star):
     """主动社交插件入口（模块 G）。
 
@@ -193,7 +194,9 @@ class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, 
                 from astrbot.core.star.star_handler import star_handlers_registry
 
                 own_module = self.__class__.__module__  # ...main
-                plugin_prefix = own_module.rsplit(".", 1)[0] + "."  # ...astrbot_plugin_proactive_social.
+                plugin_prefix = (
+                    own_module.rsplit(".", 1)[0] + "."
+                )  # ...astrbot_plugin_proactive_social.
                 orphans = [
                     h
                     for h in star_handlers_registry

@@ -21,11 +21,11 @@ from __future__ import annotations
 import asyncio
 import time
 
-from core.adaptive import AdaptiveThreshold, SendQuota
-from core.config_store import ConfigStore
-from core.interest import _compute_persona_hash
-from core.metrics import _deserialize_decision
-from core.models import BatchDecision, ScoreFactors
+from core.decision.adaptive import AdaptiveThreshold, SendQuota
+from core.storage.config_store import ConfigStore
+from core.decision.interest import _compute_persona_hash
+from core.storage.metrics import _deserialize_decision
+from core.common.models import BatchDecision, ScoreFactors
 
 # ======================================================================
 # 辅助：构造 SocialScheduler（注入自定义 inject_fn，绕过 conftest 的工厂）
@@ -48,8 +48,8 @@ def _make_scheduler(
     与 conftest.scheduler_factory 行为一致：模拟 start() 的预加载
     （group_enable_cache={}）但不真正 start()。
     """
-    from core.interest import InterestManager
-    from core.ratelimit import TokenBucketRateLimiter
+    from core.decision.interest import InterestManager
+    from core.storage.ratelimit import TokenBucketRateLimiter
     from core.scheduler import SocialScheduler
 
     interest_mgr = InterestManager(tmp_data_dir, mock_log)

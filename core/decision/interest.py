@@ -21,8 +21,8 @@ from typing import Any
 
 import numpy as np
 
-from .models import InterestData, InterestItem, InterestLevel
-from .prompts import build_interest_prompt
+from ..common.models import InterestData, InterestItem, InterestLevel
+from ..common.prompts import build_interest_prompt
 
 # 人设文本为空时使用的内置默认人设（PRD §6.8）
 _DEFAULT_PERSONA_TEXT = "你是一个友善的群聊机器人。"

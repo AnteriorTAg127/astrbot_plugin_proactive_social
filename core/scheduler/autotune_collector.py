@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import statistics
 
-from .adaptive import AdaptiveThreshold
+from ..decision.adaptive import AdaptiveThreshold
 
 
 class AutotuneStatsMixin:

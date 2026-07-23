@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from core.prompts import (
+from core.common.prompts import (
     build_glance_reply_prompt,
     build_interest_prompt,
     build_reply_prompt,

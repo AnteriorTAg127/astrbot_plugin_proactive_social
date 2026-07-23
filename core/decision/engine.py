@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .models import InterestData, ScoreFactors
+from ..common.models import InterestData, ScoreFactors
 
 # 仅 core/general/marginal 参与兴趣评分（hate 走 hate_score 单独屏蔽）
 _INTEREST_LEVELS: tuple[str, ...] = ("core", "general", "marginal")

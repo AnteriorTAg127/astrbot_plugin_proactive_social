@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .models import BatchRecord, LogicalMessage
+from ..common.models import BatchRecord, LogicalMessage
 
 # 机器人发言者在 _messages 中的标识（recent_speakers 排除）
 _BOT_USER_ID = "__bot__"

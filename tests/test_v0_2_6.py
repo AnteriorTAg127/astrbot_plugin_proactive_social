@@ -29,11 +29,11 @@ from __future__ import annotations
 import asyncio
 import time
 
-from core.config_store import SPECIAL_KEYS, ConfigStore
-from core.interest import InterestManager
-from core.models import BatchDecision, InterestLevel, ScoreFactors
-from core.prompts import build_interest_prompt
-from core.web import build_handlers
+from core.storage.config_store import SPECIAL_KEYS, ConfigStore
+from core.decision.interest import InterestManager
+from core.common.models import BatchDecision, InterestLevel, ScoreFactors
+from core.common.prompts import build_interest_prompt
+from core.plugin.web import build_handlers
 
 # ======================================================================
 # F1: 配置持久化修复（SQLite 替代 KV）
@@ -483,7 +483,7 @@ def test_f12_batch_decision_embedding_degraded_on_null_emb():
         import tempfile
         from pathlib import Path
 
-        from core.ratelimit import TokenBucketRateLimiter
+        from core.storage.ratelimit import TokenBucketRateLimiter
         from core.scheduler import SocialScheduler
 
         from tests.conftest import _MockEmbed, _MockKV, _MockLLM, _MockLog, _MockSend
@@ -519,7 +519,7 @@ def test_f12_batch_decision_embedding_degraded_on_null_emb():
                        "interest_example_count": 3, "interest_keyword_count": 12,
                        "long_window_inject_proactive": True,
                        }
-        from core.interest import InterestManager
+        from core.decision.interest import InterestManager
         interest_mgr = InterestManager(tmp, mock_log)
         rate_limiter = TokenBucketRateLimiter(30)
         sched = SocialScheduler(
