@@ -51,6 +51,7 @@ from .core.config_store import SPECIAL_KEYS, ConfigStore
 from .core.interest import InterestManager
 from .core.ratelimit import TokenBucketRateLimiter
 from .core.scheduler import SocialScheduler
+from .core.tune_controller import TuneRateLimiter
 from .core.web import build_handlers
 
 # 插件名（与 metadata.yaml 一致，用于 Web API 路由前缀与数据目录）
@@ -60,7 +61,7 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.8")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.9")
 class ProSocialPlugin(Star):
     """主动社交插件入口（模块 G）。
 
@@ -68,30 +69,27 @@ class ProSocialPlugin(Star):
     唯一 import astrbot 的运行时文件，把 ``core/`` 模块与 AstrBot 框架对接。
     """
 
-    # v0.2.8 F3：LLM 诊断调参白名单——仅这些键允许经 llm_autotune 修改。
-    # 与 scheduler._tune_config_subset() 的可调键保持一致（剔除疲劳/作息等不应由 LLM 改的项）。
-    TUNE_WHITELIST = frozenset(
+    # v0.2.9 F2：LLM 调参安全敏感键 denylist——这些键 LLM 不可改（会破坏运行）。
+    # 其余 DEFAULT_CONFIG 全部键（约 70 项）均允许 LLM 经 llm_autotune 修改（denylist 模式）。
+    # 与 scheduler._tune_config_subset() 配合：scheduler 返回全量快照，main apply 阶段过滤 DENYLIST。
+    TUNE_DENYLIST = frozenset(
         {
-            "base_threshold",
-            "w_int",
-            "w_topic",
-            "w_resp",
-            "w_cooldown",
-            "w_silence",
-            "core_interest_modifier",
-            "edge_interest_modifier",
-            "expecting_modifier",
-            "personal_threshold",
-            "cooldown_messages",
-            "fatigue_cost_active",
-            "fatigue_cost_passive",
-            "fatigue_limit",
-            "after_reply_probability",
-            "max_proactive_per_hour",
-            "max_proactive_per_day",
-            "adaptive_threshold_enabled",
+            "enable",
+            "dry_run",
+            "group_whitelist",
+            "group_mode",
+            "chat_provider_id",
+            "embedding_provider_id",
         }
     )
+
+    @classmethod
+    def _writable_keys(cls) -> set[str]:
+        """v0.2.9 F2：可写键 = DEFAULT_CONFIG - DENYLIST（约 70 项）。
+
+        ConfigStore 已在顶部 import，无循环依赖；动态计算保证与 DEFAULT_CONFIG 同步。
+        """
+        return set(ConfigStore.DEFAULT_CONFIG) - cls.TUNE_DENYLIST
 
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -127,7 +125,11 @@ class ProSocialPlugin(Star):
         # v0.2.8 F1：注入消息 message_id -> hint 映射，on_llm_request 消费后 pop。
         self._pending_hints: dict[str, str] = {}
         # v0.2.8 F3：最近一次 llm_autotune analyze 的建议 patch，供 /prosocial tune apply 复用。
+        # v0.2.9 F1/F2：扩展为含三段——suggested_patch（标量）/ suggested_keywords_patch / persona_revision。
         self._last_tune_suggestion: dict | None = None
+        # v0.2.9 F4：LLM 调参速率限制器单例（冷却 + 日上限）。
+        # state 在 initialize/terminate 经 ConfigStore.get_kv/set_kv 持久化到 SQLite 键 "tune_rate_state"。
+        self._tune_limiter = TuneRateLimiter()
 
     # ------------------------------------------------------------------ #
     # 日志回调（注入 core 模块用）
@@ -157,6 +159,15 @@ class ProSocialPlugin(Star):
             # v0.2.7 数据迁移：从旧 AstrBot KV 迁移到 SQLite（仅首次执行）
             await self._migrate_kv_to_sqlite()
 
+            # v0.2.9 F4：恢复 LLM 调参速率限制器状态（冷却 + 日计数连续）
+            try:
+                tune_state = await self._config_store.get_kv("tune_rate_state", {})
+                self._tune_limiter.restore(
+                    tune_state if isinstance(tune_state, dict) else {}
+                )
+            except Exception as e:
+                self._log("warning", f"tune_limiter 恢复失败: {e}")
+
             self._llm_fn = self._make_llm_fn()
             self._embed_fn = self._make_embed_fn()
 
@@ -174,6 +185,9 @@ class ProSocialPlugin(Star):
                 # v0.2.8 F1：主动回复注入回调——构造 AstrBotMessage 走 platform_inst.handle_msg
                 # 标准管线（追踪+历史自动记录）。None 时所有主动回复走旧路径（行为不变）。
                 inject_fn=self._make_inject_fn(),
+                # v0.2.9 F3：触发率越界自动调参回调——scheduler._maybe_autotune 经此触发
+                # llm_autotune("analyze")。回调内自行处理速率限制（force=False）。
+                autotune_trigger_fn=self._autotune_trigger,
             )
 
             # 注册 Web API（7 个）
@@ -818,12 +832,15 @@ class ProSocialPlugin(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     @prosocial.command("tune")
     async def cmd_tune(self, event: AstrMessageEvent, arg: str = ""):
-        """v0.2.8 F3：LLM 诊断调参。
+        """v0.2.9 F3/F5：LLM 诊断调参（全视野 + 速率限制）。
 
-        ``/prosocial tune``                 分析（默认平衡风格）
+        ``/prosocial tune``                 分析（默认平衡风格，受速率限制）
         ``/prosocial tune proactive``       分析（偏主动风格，目标 20%-30%）
         ``/prosocial tune passive``         分析（偏被动风格，目标 5%-10%）
         ``/prosocial tune balanced``        分析（平衡风格，目标 10%-20%）
+        ``/prosocial tune force``           强制分析（跳过速率限制，仍计数）
+        ``/prosocial tune force proactive`` 强制分析 + 指定风格
+        ``/prosocial tune status``          查看速率限制状态 + 上次建议摘要
         ``/prosocial tune apply``           应用上次 analyze 缓存的建议 patch。
         均需 ADMIN 权限。LLM 调用慢，直接 await 等待回复（指令同步阻塞可接受）。
         补充指导文本请通过 Dashboard 调参面板填写（CLI 不便输入多行文本）。
@@ -833,6 +850,10 @@ class ProSocialPlugin(Star):
                 yield event.plain_result("调度器未启动")
                 return
             raw_arg = (arg or "").strip()
+            # v0.2.9 F5：status 子命令——显示速率限制状态 + 上次建议摘要
+            if raw_arg == "status":
+                yield event.plain_result(self._format_tune_status())
+                return
             if raw_arg == "apply":
                 result = await self.llm_autotune("apply")
                 if result.get("ok"):
@@ -844,27 +865,59 @@ class ProSocialPlugin(Star):
                         f"❌ 应用失败：{result.get('error', '未知')}"
                     )
                 return
+            # v0.2.9 F4：force 子命令——跳过速率限制（仍 record 计数）
+            # 格式："force" 或 "force proactive/passive/balanced"
+            force = False
+            style_arg = raw_arg
+            if raw_arg == "force" or raw_arg.startswith("force "):
+                force = True
+                style_arg = raw_arg[5:].strip()  # 去掉 "force" 前缀
             # 解析风格参数（proactive/passive/balanced），无效值回退 balanced
             style = (
-                raw_arg
-                if raw_arg in ("proactive", "passive", "balanced")
+                style_arg
+                if style_arg in ("proactive", "passive", "balanced")
                 else "balanced"
             )
-            result = await self.llm_autotune("analyze", style=style)
+            result = await self.llm_autotune("analyze", style=style, force=force)
             if not result.get("ok"):
-                yield event.plain_result(f"❌ 分析失败：{result.get('error', '未知')}")
+                # v0.2.9 F4：被速率限制时回显 retry_after / 已用配额
+                if result.get("error") == "rate_limited":
+                    rate = result.get("rate_limit", {}) or {}
+                    used = rate.get("used", 0)
+                    limit = rate.get("limit", 0)
+                    next_avail = int(rate.get("next_available", 0))
+                    hours = next_avail // 3600
+                    minutes = (next_avail % 3600) // 60
+                    yield event.plain_result(
+                        f"⏳ 触发速率限制（{result.get('reason', '')}）："
+                        f"今日已用 {used}/{limit}，"
+                        f"下次可用约 {hours}小时{minutes}分钟后"
+                        f"\n（ADMIN 可用 /prosocial tune force 强制分析）"
+                    )
+                else:
+                    yield event.plain_result(
+                        f"❌ 分析失败：{result.get('error', '未知')}"
+                    )
                 return
             analysis = result.get("analysis", "") or ""
             patch = result.get("suggested_patch", {}) or {}
+            keywords_patch = result.get("suggested_keywords_patch") or None
+            persona_rev = result.get("persona_revision") or None
             expected = result.get("expected_effect", "") or ""
             patch_str = (
                 "\n".join(f"  {k}: {v}" for k, v in patch.items())
                 if patch
                 else "  （无建议）"
             )
+            extra = ""
+            if keywords_patch:
+                extra += "\n\n（含关键词增删建议）"
+            if persona_rev:
+                extra += "\n（含人设改写建议）"
             yield event.plain_result(
                 f"📊 诊断结果\n\n分析：\n{analysis}\n\n建议参数：\n{patch_str}"
-                f"\n\n预期效果：{expected}\n\n应用建议：/prosocial tune apply"
+                f"\n\n预期效果：{expected}{extra}"
+                f"\n\n应用建议：/prosocial tune apply"
             )
         except Exception as e:
             yield event.plain_result(f"tune 指令失败: {e}")
@@ -1167,7 +1220,7 @@ class ProSocialPlugin(Star):
                 self.scheduler._fatigue.snapshot(time.time()) if self.scheduler else {}
             ),
             "interests": self.get_interests_view(),
-            "version": "v0.2.8",
+            "version": "v0.2.9",
             "export_time": time.time(),
         }
 
@@ -1176,12 +1229,20 @@ class ProSocialPlugin(Star):
     # ------------------------------------------------------------------ #
 
     async def run_autotune(self, body: dict) -> dict:
-        """WebBridge 鸭子接口：``POST /prosocial/autotune`` 入口。
+        """WebBridge 鸭子接口：``POST /prosocial/autotune`` 入口（v0.2.9 扩展）。
 
-        body.action: ``"analyze"`` 分析最近决策数据生成建议；``"apply"`` 应用建议 patch
-                    （body.patch 可选，缺省用 ``self._last_tune_suggestion`` 缓存）。
+        body 字段：
+        - action: ``"analyze"`` | ``"apply"``
+        - patch: apply 时可选 patch（缺省用 ``self._last_tune_suggestion`` 缓存）
+        - style: analyze 风格偏好（proactive/balanced/passive）
+        - guidance: analyze 用户自定义补充指导
+        - force: bool，跳过速率限制（v0.2.9 F4，仅 analyze 生效）
+        - keywords_patch: apply 关键词增删（v0.2.9 F2，结构见 ``_apply_keywords_patch``）
+        - persona_revision: apply 人设改写文本（v0.2.9 F2，合并入 persona_text 走重建路径）
+
         返回扁平 dict（透传给前端）：``{ok, analysis?, suggested_patch?,
-        expected_effect?, applied, updated?, error?}``。
+        suggested_keywords_patch?, persona_revision?, expected_effect?, applied,
+        updated?, regenerate?, keywords_updated?, rate_limit, error?}``。
         """
         if not isinstance(body, dict):
             return {"ok": False, "error": "body 必须是 JSON 对象"}
@@ -1191,7 +1252,18 @@ class ProSocialPlugin(Star):
         patch = body.get("patch") if action == "apply" else None
         style = str(body.get("style", "")) if action == "analyze" else ""
         guidance = str(body.get("guidance", "")) if action == "analyze" else ""
-        return await self.llm_autotune(action, patch, style=style, guidance=guidance)
+        force = bool(body.get("force", False))
+        keywords_patch = body.get("keywords_patch")
+        persona_revision = body.get("persona_revision")
+        return await self.llm_autotune(
+            action,
+            patch,
+            style=style,
+            guidance=guidance,
+            force=force,
+            keywords_patch=keywords_patch,
+            persona_revision=persona_revision,
+        )
 
     async def llm_autotune(
         self,
@@ -1200,22 +1272,46 @@ class ProSocialPlugin(Star):
         *,
         style: str = "",
         guidance: str = "",
+        force: bool = False,
+        keywords_patch: dict | None = None,
+        persona_revision: str | None = None,
     ) -> dict:
-        """v0.2.8 F3：LLM 诊断调参核心。
+        """v0.2.9 F1/F2/F4：LLM 诊断调参核心（全视野 + denylist + 速率限制）。
 
-        - ``action="analyze"``：``scheduler.collect_tune_stats()`` → 构造分析 prompt →
-          ``self._llm_fn`` → 解析 JSON（容错 fence）→ 白名单过滤 suggested_patch →
-          缓存到 ``self._last_tune_suggestion`` → 返回 ``{ok, analysis, suggested_patch,
-          expected_effect, applied: False}``。
-        - ``action="apply"``：patch 来自参数或缓存 → 白名单过滤 →
-          ``ConfigStore.set_many``（内置类型/范围校验）→ 返回 ``{ok, applied, updated, error?}``。
-        - ``style``：用户回复风格偏好（``"proactive"`` / ``"balanced"`` / ``"passive"``），
-          注入预设提示词引导 LLM 调参方向。
-        - ``guidance``：用户自定义补充指导文本，原样追加到提示词末尾。
+        - ``action="analyze"``：``scheduler.collect_tune_stats()`` → 构造全视野 prompt →
+          ``self._llm_fn`` → 解析 JSON（容错 fence）→ DENYLIST 过滤 suggested_patch →
+          缓存到 ``self._last_tune_suggestion``（含三段：suggested_patch /
+          suggested_keywords_patch / persona_revision）→ ``record()`` 计入速率配额 →
+          返回 ``{ok, analysis, suggested_patch, suggested_keywords_patch,
+          persona_revision, expected_effect, applied: False, rate_limit}``。
+        - ``action="apply"``：patch 来自参数或缓存 → persona_revision 合并入 persona_text →
+          DENYLIST 过滤 → 标量走 ``ConfigStore.set_many`` / persona 变更触发后台 regenerate /
+          keywords_patch 走 ``interest_mgr.add_item`` + ``remove_item`` + ``apply_rejected`` →
+          返回 ``{ok, applied, updated, regenerate, keywords_updated, rate_limit, error?}``。
+        - ``force=True``：跳过 ``TuneRateLimiter.allow()``（仅 analyze 走此路径；apply 不调
+          LLM 故不限速），analyze 成功后仍 ``record()`` 计入配额。
+        - 速率限制仅作用于 analyze（apply 不调 LLM，无成本，避免阻塞 analyze→apply 流水）。
         - scheduler 未就绪 / llm_fn 未就绪 → ``{ok: False, error: ...}``。
         """
         if self.scheduler is None or self._llm_fn is None:
             return {"ok": False, "error": "scheduler 或 llm_fn 未就绪"}
+
+        now = time.time()
+        cfg = self._config_getter()
+        cooldown = float(cfg.get("autotune_cooldown_hours", 3.0))
+        max_per_day = int(cfg.get("autotune_max_per_day", 4))
+
+        # v0.2.9 F4：速率限制仅作用于 analyze（apply 不调 LLM）
+        if action == "analyze" and not force:
+            ok, reason = self._tune_limiter.allow(now, cooldown, max_per_day)
+            if not ok:
+                return {
+                    "ok": False,
+                    "error": "rate_limited",
+                    "reason": reason,
+                    "limit": max_per_day,
+                    "rate_limit": self._rate_limit_status(now, cooldown, max_per_day),
+                }
 
         if action == "analyze":
             stats = self.scheduler.collect_tune_stats()
@@ -1228,43 +1324,101 @@ class ProSocialPlugin(Star):
             if not parsed:
                 return {"ok": False, "error": "LLM 输出解析失败（非 JSON）"}
             suggested = parsed.get("suggested_patch", {}) or {}
-            # 白名单过滤：仅保留 TUNE_WHITELIST 内的键，其余丢弃并在 analysis 末尾注明
-            filtered = {k: v for k, v in suggested.items() if k in self.TUNE_WHITELIST}
-            dropped = [k for k in suggested if k not in self.TUNE_WHITELIST]
+            # v0.2.9 F2：DENYLIST 过滤——丢弃安全敏感键，注明
+            filtered = {
+                k: v for k, v in suggested.items() if k not in self.TUNE_DENYLIST
+            }
+            dropped = [k for k in suggested if k in self.TUNE_DENYLIST]
             analysis = str(parsed.get("analysis", "") or "")
             if dropped:
-                analysis += f"\n\n[已过滤非白名单键: {', '.join(dropped)}]"
-            result = {
+                analysis += f"\n\n[已过滤安全敏感键: {', '.join(dropped)}]"
+            suggested_keywords = parsed.get("suggested_keywords_patch") or None
+            persona_rev = parsed.get("persona_revision") or None
+            # 缓存建议（含三段，供 apply 复用）
+            self._last_tune_suggestion = {
+                "suggested_patch": filtered,
+                "suggested_keywords_patch": suggested_keywords,
+                "persona_revision": persona_rev,
+            }
+            # analyze 成功后 record（计入配额；force=True 也 record）
+            self._tune_limiter.record(now)
+            return {
                 "ok": True,
                 "analysis": analysis,
                 "suggested_patch": filtered,
+                "suggested_keywords_patch": suggested_keywords,
+                "persona_revision": persona_rev,
                 "expected_effect": str(parsed.get("expected_effect", "") or ""),
                 "applied": False,
+                "rate_limit": self._rate_limit_status(now, cooldown, max_per_day),
             }
-            self._last_tune_suggestion = filtered
-            return result
 
         if action == "apply":
-            target = patch or (self._last_tune_suggestion or {})
-            if not target:
+            # 从缓存或参数取 patch + 可选 keywords_patch / persona_revision
+            if patch is None:
+                cached = self._last_tune_suggestion or {}
+                if isinstance(cached, dict):
+                    patch = cached.get("suggested_patch", {}) or {}
+                    if not keywords_patch:
+                        keywords_patch = cached.get("suggested_keywords_patch")
+                    if not persona_revision:
+                        persona_revision = cached.get("persona_revision")
+                else:
+                    patch = {}
+            # persona_revision 合并入 persona_text 走同一路径
+            if persona_revision:
+                patch = dict(patch)
+                patch["persona_text"] = persona_revision
+            if not patch and not keywords_patch:
                 return {"ok": False, "error": "无可应用的 patch（无参数且无缓存建议）"}
-            filtered = {k: v for k, v in target.items() if k in self.TUNE_WHITELIST}
-            if not filtered:
-                return {"ok": False, "error": "过滤白名单后无可应用键"}
-            ok, msg = await self._config_store.set_many(filtered)
-            if ok:
-                # 应用成功后清空缓存，避免重复 apply
-                self._last_tune_suggestion = None
+            # v0.2.9 F2：DENYLIST 过滤
+            filtered = {k: v for k, v in patch.items() if k not in self.TUNE_DENYLIST}
+            dropped = [k for k in patch if k in self.TUNE_DENYLIST]
+            # 标量写入（ConfigStore.set_many 内置类型/范围校验，DENYLIST 已过滤）
+            ok, msg = (True, "")
+            if filtered:
+                ok, msg = await self._config_store.set_many(filtered)
+            if not ok:
+                return {
+                    "ok": False,
+                    "applied": False,
+                    "error": msg,
+                    "rate_limit": self._rate_limit_status(now, cooldown, max_per_day),
+                }
+            # v0.2.9 F2：人设/数量变更触发后台兴趣重建（不阻塞 apply 响应）
+            regenerate_needed = any(
+                k in filtered
+                for k in (
+                    "persona_text",
+                    "persona_knowledge",
+                    "interest_example_count",
+                    "interest_keyword_count",
+                )
+            )
+            if regenerate_needed:
+                try:
+                    asyncio.create_task(self._bg_regenerate_persona())
+                except Exception as e:
+                    self._log("warning", f"启动兴趣重建后台任务失败: {e}")
+            # v0.2.9 F2：应用 keywords_patch（add/remove + apply_rejected 重算质心）
+            keywords_updated = 0
+            if keywords_patch:
+                keywords_updated = await self._apply_keywords_patch(keywords_patch)
+            # 应用成功后清空缓存，避免重复 apply
+            self._last_tune_suggestion = None
             return {
-                "ok": ok,
-                "applied": ok,
-                "updated": len(filtered) if ok else 0,
-                "error": msg if not ok else None,
+                "ok": True,
+                "applied": True,
+                "updated": len(filtered),
+                "dropped": dropped,
+                "regenerate": regenerate_needed,
+                "keywords_updated": keywords_updated,
+                "rate_limit": self._rate_limit_status(now, cooldown, max_per_day),
             }
 
         return {"ok": False, "error": f"未知 action: {action}"}
 
-    # v0.2.8 F3：回复风格偏好 → LLM 调参方向引导
+    # v0.2.8 F3：回复风格偏好 → LLM 调参方向引导（v0.2.9 沿用）
     _STYLE_GUIDANCE = {
         "proactive": (
             "偏主动——用户希望机器人更活跃、更频繁地插话参与群聊。\n"
@@ -1285,23 +1439,199 @@ class ProSocialPlugin(Star):
         ),
     }
 
+    def _rate_limit_status(self, now: float, cooldown: float, max_per_day: int) -> dict:
+        """v0.2.9 F4：返回当前速率限制状态块（供响应附带，前端展示用）。
+
+        从 ``TuneRateLimiter.state()`` 取 history 与 last_call 自行计算
+        used / next_available，避免扩展 tune_controller 的公开方法。
+        """
+        try:
+            state = self._tune_limiter.state()
+        except Exception:
+            state = {"history": [], "last_call": None}
+        history = state.get("history") or []
+        last_call = state.get("last_call")
+        used = len([t for t in history if t >= now - 86400])
+        next_available = 0.0
+        if last_call is not None and cooldown > 0:
+            next_available = max(0.0, last_call + cooldown * 3600 - now)
+        return {
+            "used": used,
+            "limit": max_per_day,
+            "next_available": int(next_available),
+            "cooldown_hours": cooldown,
+        }
+
+    async def _bg_regenerate_persona(self) -> None:
+        """v0.2.9 F2：人设变更后后台重建兴趣数据（不阻塞 apply 响应）。
+
+        复用 v0.2.6 F4 / set_config_view 的 regenerate 调用模式。
+        """
+        try:
+            cfg = self._config_getter()
+            persona_text = str(cfg.get("persona_text", ""))
+            persona_knowledge = str(cfg.get("persona_knowledge", ""))
+            example_count = int(cfg.get("interest_example_count", 3))
+            keyword_count = int(cfg.get("interest_keyword_count", 12))
+            await self.interest_mgr.regenerate(
+                persona_text,
+                persona_knowledge,
+                self._llm_fn,
+                self._embed_fn,
+                example_count=example_count,
+                keyword_count=keyword_count,
+            )
+            self._log("info", "人设变更，兴趣数据已重新生成")
+        except Exception as exc:
+            self._log("warning", f"人设变更后兴趣重建失败: {exc}")
+
+    async def _apply_keywords_patch(self, keywords_patch: dict) -> int:
+        """v0.2.9 F2：应用关键词增删 patch。
+
+        结构：``{"add": [{kind, label, text}], "remove": [{kind, label, text}]}``
+        - kind: ``example`` | ``high_keyword`` | ``hate_keyword``
+        - label: ``core`` | ``general`` | ``marginal`` | ``hate``（example 用）
+        - text: 关键词/示例文本
+
+        循环调 ``interest_mgr.add_item`` / ``remove_item``（每调用即重算质心），
+        完成后再调 ``apply_rejected`` 确保 rejected 列表生效。返回成功操作的项数。
+        """
+        if not isinstance(keywords_patch, dict):
+            return 0
+        embed_fn = self._embed_fn
+        if embed_fn is None:
+            return 0
+        valid_kinds = ("example", "high_keyword", "hate_keyword")
+        count = 0
+        for item in keywords_patch.get("add") or []:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("kind")
+            label = str(item.get("label", "") or "")
+            text = str(item.get("text", "") or "")
+            if kind not in valid_kinds or not text:
+                continue
+            try:
+                ok, _ = await self.interest_mgr.add_item(kind, label, text, embed_fn)
+                if ok:
+                    count += 1
+            except Exception as e:
+                self._log("warning", f"keywords_patch add 失败: {e}")
+        for item in keywords_patch.get("remove") or []:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("kind")
+            label = str(item.get("label", "") or "")
+            text = str(item.get("text", "") or "")
+            if kind not in valid_kinds or not text:
+                continue
+            try:
+                ok, _ = await self.interest_mgr.remove_item(kind, label, text, embed_fn)
+                if ok:
+                    count += 1
+            except Exception as e:
+                self._log("warning", f"keywords_patch remove 失败: {e}")
+        # 重算质心确保 rejected 列表生效（add/remove 已各自重算，此步兜底过滤）
+        try:
+            await self.interest_mgr.apply_rejected(embed_fn)
+        except Exception as e:
+            self._log("warning", f"keywords_patch apply_rejected 失败: {e}")
+        return count
+
+    async def _autotune_trigger(self) -> dict:
+        """v0.2.9 F3：scheduler 自动触发回调。
+
+        调 ``llm_autotune("analyze", force=False)``（受速率限制）；
+        若 ``autotune_auto_apply=true`` 则成功后调 ``llm_autotune("apply", force=True)``
+        应用已缓存建议（force 跳过速率限制——analyze 已计数，避免冷却阻塞 apply）。
+        失败/被限写日志，不抛异常（scheduler 后台 create_task 调用）。
+        """
+        try:
+            result = await self.llm_autotune("analyze", force=False)
+            if result.get("ok") and self._config_getter().get(
+                "autotune_auto_apply", False
+            ):
+                try:
+                    apply_result = await self.llm_autotune("apply", force=True)
+                    result["apply_result"] = apply_result
+                except Exception as e:
+                    self._log("warning", f"_autotune_trigger auto_apply 失败: {e}")
+                    result["apply_error"] = str(e)
+            if not result.get("ok"):
+                if result.get("error") == "rate_limited":
+                    self._log("info", "[ProSocial] autotune_skipped: rate_limited")
+                else:
+                    self._log(
+                        "warning",
+                        f"[ProSocial] autotune 失败: {result.get('error')}",
+                    )
+            return result
+        except Exception as e:
+            self._log("warning", f"_autotune_trigger 失败: {e}")
+            return {"ok": False, "error": str(e)}
+
     def _build_tune_prompt(
         self, stats: dict, *, style: str = "", guidance: str = ""
     ) -> str:
-        """构造 LLM 调参分析 prompt。
+        """v0.2.9 F1：LLM 全视野调参 prompt。
 
-        包含：插件工作原理详解 + 18 参数说明 + 近期决策统计 + 当前参数值 +
-        用户回复风格偏好 + 用户自定义指导 + 输出格式要求。
+        注入：全量配置（~75 项减 DENYLIST 6 项）+ 兴趣数据（export_view）+
+        人设文本 + schedule + 群白名单 + adaptive 状态 + provider 名称解析 +
+        决策统计 + 风格偏好 + 用户指导。
+        输出格式说明含三段：suggested_patch / suggested_keywords_patch / persona_revision。
         """
         current_cfg = self._tune_current_config()
-        whitelist = sorted(self.TUNE_WHITELIST)
+        full_cfg = self._config_getter()
+
+        # v0.2.9 F1：provider 名称解析（chat_provider_id / embedding_provider_id）
+        chat_prov_name = "（默认）"
+        chat_pid = str(full_cfg.get("chat_provider_id", "") or "")
+        if chat_pid:
+            try:
+                prov = self.context.get_provider_by_id(chat_pid)
+                if prov is not None:
+                    chat_prov_name = str(prov.meta().name or chat_pid)
+                else:
+                    chat_prov_name = f"（未找到 {chat_pid}）"
+            except Exception:
+                chat_prov_name = chat_pid
+        embed_prov_name = "（默认）"
+        embed_pid = str(full_cfg.get("embedding_provider_id", "") or "")
+        if embed_pid:
+            try:
+                prov = self.context.get_provider_by_id(embed_pid)
+                if prov is not None:
+                    embed_prov_name = str(prov.meta().name or embed_pid)
+                else:
+                    embed_prov_name = f"（未找到 {embed_pid}）"
+            except Exception:
+                embed_prov_name = embed_pid
+
+        # v0.2.9 F1：兴趣数据 export_view（items/hate_keywords/high_interest_keywords/rejected）
+        interest_view = self.interest_mgr.export_view()
+
+        # v0.2.9 F1：adaptive 摘要（每群 mult/window_rate/samples）
+        adaptive_summary = stats.get("adaptive_summary", []) or []
+
+        # 风格偏好 + 用户指导
         style_key = style if style in self._STYLE_GUIDANCE else "balanced"
         style_text = self._STYLE_GUIDANCE[style_key]
         user_guidance = guidance.strip() if guidance else "（用户未提供补充说明）"
+
+        # DENYLIST 与可写键说明
+        denylist_str = ", ".join(sorted(self.TUNE_DENYLIST))
+        writable_count = len(self._writable_keys())
+
         return (
             "# 角色与任务\n"
-            "你是「主动社交插件」的调参专家。请根据近期决策数据统计、当前参数值"
-            "和用户偏好，给出参数调整建议。\n\n"
+            "你是「主动社交插件」的调参专家。请基于机器人完整画像、近期决策数据"
+            "和用户偏好，给出整体性调参建议。\n\n"
+            "# 机器人画像\n\n"
+            f"**人设文本（persona_text）**：\n{full_cfg.get('persona_text', '')}\n\n"
+            f"**补充知识（persona_knowledge）**：\n{full_cfg.get('persona_knowledge', '')}\n\n"
+            "# Provider 信息\n\n"
+            f"- Chat provider: {chat_prov_name}\n"
+            f"- Embedding provider: {embed_prov_name}\n\n"
             "# 插件工作原理\n\n"
             "这是一个群聊主动社交插件。机器人监听群消息，通过双通道融合评分"
             "决定是否主动插话：\n\n"
@@ -1333,36 +1663,30 @@ class ProSocialPlugin(Star):
             "8. **自适应阈值**：adaptive_threshold_enabled=true 时，按近期触发率\n"
             "   自动调整 multiplier——触发率>30% 则 mult×1.1 收紧，<5% 则 mult×0.9 放宽，\n"
             "   mult 钳制 [0.5, 2.0]。5%-30% 为健康触发率区间。\n\n"
-            "# 可调参数说明（白名单 18 项）\n\n"
-            "| 参数 | 类型 | 说明 |\n"
-            "|------|------|------|\n"
-            "| base_threshold | float | 基础阈值（0.0-1.0），越高越保守 |\n"
-            "| w_int | float | 兴趣相关度权重（0.0-3.0） |\n"
-            "| w_topic | float | 话题连续度权重（0.0-3.0） |\n"
-            "| w_resp | float | 回应匹配度权重（0.0-3.0） |\n"
-            "| w_cooldown | float | 冷却因子权重（0.0-3.0） |\n"
-            "| w_silence | float | 沉默时长权重（0.0-3.0） |\n"
-            "| core_interest_modifier | float | 核心兴趣加成（0.0-1.0） |\n"
-            "| edge_interest_modifier | float | 边缘兴趣加成（0.0-1.0） |\n"
-            "| expecting_modifier | float | 被@/接话加成（0.0-1.0） |\n"
-            "| personal_threshold | float | 个人跟踪阈值（0.0-1.0） |\n"
-            "| cooldown_messages | int | 冷却条数（1-50，距上次发多少条消息后可再触发） |\n"
-            "| fatigue_cost_active | float | 主动回复疲劳消耗（0.0-2.0） |\n"
-            "| fatigue_cost_passive | float | 被动回复疲劳消耗（0.0-2.0） |\n"
-            "| fatigue_limit | float | 疲劳上限（1.0-20.0） |\n"
-            "| after_reply_probability | float | 回复后开等待窗口概率（0.0-1.0） |\n"
-            "| max_proactive_per_hour | int | 每群每小时发送上限（0=不限） |\n"
-            "| max_proactive_per_day | int | 每群每日发送上限（0=不限） |\n"
-            "| adaptive_threshold_enabled | bool | 自适应阈值开关 |\n\n"
+            "# 兴趣数据（export_view，含 items/hate_keywords/high_interest_keywords/rejected）\n\n"
+            f"{json.dumps(interest_view, ensure_ascii=False, indent=2)}\n\n"
+            "# 作息 schedule\n\n"
+            f"{json.dumps(full_cfg.get('schedule', []), ensure_ascii=False, indent=2)}\n\n"
+            "# 群范围\n\n"
+            f"- group_mode: {full_cfg.get('group_mode', 'whitelist')}\n"
+            f"- group_whitelist: {full_cfg.get('group_whitelist', [])}\n\n"
+            "# 自适应阈值状态（每群 mult/window_rate/samples）\n\n"
+            f"{json.dumps(adaptive_summary, ensure_ascii=False, indent=2)}\n\n"
+            "# 近期决策数据统计（最近 200 条）\n\n"
+            f"{json.dumps(stats, ensure_ascii=False, indent=2)}\n\n"
+            "# 当前全量配置（除 DENYLIST 外均可改）\n\n"
+            f"{json.dumps(current_cfg, ensure_ascii=False, indent=2)}\n\n"
             "# 用户偏好\n\n"
             f"**回复风格**：{style_text}\n\n"
             f"**用户补充说明**：\n{user_guidance}\n\n"
-            "# 近期决策数据统计（最近 200 条）\n\n"
-            f"{json.dumps(stats, ensure_ascii=False, indent=2)}\n\n"
-            "# 当前参数值\n\n"
-            f"{json.dumps(current_cfg, ensure_ascii=False, indent=2)}\n\n"
+            "# 可写键说明\n\n"
+            f"可写键 = 全量配置减 DENYLIST（共 {writable_count} 项）。\n"
+            f"DENYLIST（安全敏感键，不可改）：{denylist_str}\n"
+            "另外可输出：\n"
+            "- suggested_keywords_patch：兴趣关键词增删\n"
+            "- persona_revision：人设改写（可选，仅当人设本身需要调整时）\n\n"
             "# 分析要求\n\n"
-            "请按以下维度逐一分析，给出具体调整建议：\n\n"
+            "请基于机器人完整画像做整体性调参建议：\n\n"
             "1. **触发率**：当前 triggered_rate 是否在健康区间？与用户风格偏好的目标区间对比。\n"
             "   偏高→收紧阈值/降权重；偏低→放宽。注意区分 below_threshold 和 quota 抑制。\n\n"
             "2. **得分分布**：score_mean vs threshold_mean 的差距是否合理？\n"
@@ -1374,19 +1698,80 @@ class ProSocialPlugin(Star):
             "   频繁触发后被配额拦截；below_threshold 占比高→阈值过高。\n\n"
             "5. **疲劳状态**：fatigue_value_mean 是否接近 fatigue_limit？\n"
             "   接近→疲劳消耗过快或恢复太慢，机器人会逐渐沉默。\n\n"
-            "6. **风格对齐**：建议方向必须与用户回复风格偏好一致。\n\n"
+            "6. **兴趣数据**：兴趣 items 是否合理？是否需要增删关键词？\n"
+            "   人设文本是否需要调整？（仅必要时输出 persona_revision）\n\n"
+            "7. **风格对齐**：建议方向必须与用户回复风格偏好一致。\n\n"
             "# 输出格式\n\n"
-            "仅输出 JSON（不要 ```json 标记），格式：\n"
-            '{"analysis": "详细分析（中文，逐维度点评，引用具体数值）", '
-            '"suggested_patch": {"参数名": 建议值, ...}, '
-            '"expected_effect": "应用后预期效果描述（触发率变化、风格变化等）"}\n\n'
-            f"注意：suggested_patch 仅可包含白名单内参数：{whitelist}"
+            "仅输出严格 JSON（不要 ```json 标记），含三段：\n"
+            "{\n"
+            '  "analysis": "对当前参数与决策数据的诊断分析（必填，中文，逐维度点评，引用具体数值）",\n'
+            '  "suggested_patch": {"配置键": 新值, ...},  // 标量配置；可写键 = 全量配置减 DENYLIST 6 项\n'
+            '  "suggested_keywords_patch": {  // 可选，兴趣关键词增删\n'
+            '    "add": [{"kind": "example"|"high_keyword"|"hate_keyword", "label": "core"|"general"|"marginal"|"hate", "text": "..."}],\n'
+            '    "remove": [{"kind": ..., "label": ..., "text": "..."}]\n'
+            "  },\n"
+            '  "persona_revision": "可选，仅当人设本身需要调整时输出新人设文本",\n'
+            '  "expected_effect": "应用建议后的预期效果（必填）"\n'
+            "}\n\n"
+            "仅输出 JSON，不要其他文本。"
         )
 
     def _tune_current_config(self) -> dict:
-        """返回当前白名单内的配置值（供 LLM 诊断时对照当前参数）。"""
+        """v0.2.9 F1：返回当前全量配置减 DENYLIST（供 LLM 诊断时对照当前参数）。"""
         cfg = self._config_getter()
-        return {k: cfg.get(k) for k in self.TUNE_WHITELIST if k in cfg}
+        return {k: v for k, v in cfg.items() if k not in self.TUNE_DENYLIST}
+
+    def _format_tune_status(self) -> str:
+        """v0.2.9 F5：格式化调参状态信息（``/prosocial tune status``）。"""
+        cfg = self._config_getter()
+        now = time.time()
+        cooldown = float(cfg.get("autotune_cooldown_hours", 3.0))
+        max_per_day = int(cfg.get("autotune_max_per_day", 4))
+        try:
+            state = self._tune_limiter.state()
+        except Exception:
+            state = {"history": [], "last_call": None}
+        history = state.get("history") or []
+        last_call = state.get("last_call")
+        used = len([t for t in history if t >= now - 86400])
+        next_available = 0.0
+        if last_call is not None and cooldown > 0:
+            next_available = max(0.0, last_call + cooldown * 3600 - now)
+
+        lines = [
+            "📋 LLM 调参状态",
+            f"速率限制：今日已用 {used}/{max_per_day}",
+        ]
+        if next_available > 0:
+            hours = int(next_available // 3600)
+            minutes = int((next_available % 3600) // 60)
+            lines.append(f"下次可用：{hours}小时{minutes}分钟后")
+        else:
+            lines.append("下次可用：现在")
+
+        auto_trigger = bool(cfg.get("autotune_auto_trigger_enabled", True))
+        auto_apply = bool(cfg.get("autotune_auto_apply", False))
+        lines.append(f"自动触发：{'开启' if auto_trigger else '关闭'}")
+        lines.append(f"自动应用：{'开启' if auto_apply else '关闭'}")
+
+        cached = self._last_tune_suggestion
+        if isinstance(cached, dict) and cached:
+            patch = cached.get("suggested_patch", {}) or {}
+            lines.append("")
+            lines.append(f"上次建议（缓存 {len(patch)} 项标量）：")
+            for k, v in list(patch.items())[:5]:
+                lines.append(f"  {k}: {v}")
+            if len(patch) > 5:
+                lines.append(f"  ...（共 {len(patch)} 项）")
+            if cached.get("suggested_keywords_patch"):
+                lines.append("（含关键词增删建议）")
+            if cached.get("persona_revision"):
+                lines.append("（含人设改写建议）")
+        else:
+            lines.append("")
+            lines.append("上次建议：无缓存")
+
+        return "\n".join(lines)
 
     @staticmethod
     def _parse_tune_response(raw: str) -> dict | None:
@@ -1492,12 +1877,19 @@ class ProSocialPlugin(Star):
     # terminate
     # ------------------------------------------------------------------ #
     async def terminate(self):
-        """插件卸载/停用时调用：scheduler.stop() + config_store.close()。"""
+        """插件卸载/停用时调用：scheduler.stop() + 持久化调参状态 + config_store.close()。"""
         try:
             if self.scheduler is not None:
                 await self.scheduler.stop()
         except Exception as e:
             self._log("warning", f"terminate scheduler.stop 异常: {e}")
+        # v0.2.9 F4：持久化 LLM 调参速率限制器状态（冷却 + 日计数）
+        try:
+            await self._config_store.set_kv(
+                "tune_rate_state", self._tune_limiter.state()
+            )
+        except Exception as e:
+            self._log("warning", f"tune_limiter 持久化失败: {e}")
         try:
             await self._config_store.close()
         except Exception as e:
