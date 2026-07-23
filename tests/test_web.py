@@ -47,8 +47,13 @@ class _MockBridge:
         }
         self.interests_patch_result: tuple[bool, str] = (True, "")
         self.last_interests_patch: dict | None = None
-        # F3 LLM 诊断调参
+        # F3 LLM 诊断调参 / v0.2.9 T6.1 透传字段
         self.last_autotune_body: dict | None = None
+        # v0.2.9 T6.2：显式捕获三字段（force/keywords_patch/persona_revision）
+        # 便于测试断言「web 层 → main.run_autotune」的透传契约
+        self.last_autotune_force: bool | None = None
+        self.last_autotune_keywords_patch: dict | None = None
+        self.last_autotune_persona_revision: str | None = None
 
     def get_status(self) -> dict:
         return self.status_data
@@ -89,19 +94,39 @@ class _MockBridge:
 
     async def run_autotune(self, body: dict) -> dict:
         # F3：LLM 诊断调参 mock —— 固定返回 analyze 成功结果
+        # v0.2.9 T6.2：显式捕获 force / keywords_patch / persona_revision
+        # （main.run_autotune 同样会读取这三个字段，mock 镜像其行为）
         self.last_autotune_body = body
+        self.last_autotune_force = body.get("force") if isinstance(body, dict) else None
+        self.last_autotune_keywords_patch = (
+            body.get("keywords_patch") if isinstance(body, dict) else None
+        )
+        self.last_autotune_persona_revision = (
+            body.get("persona_revision") if isinstance(body, dict) else None
+        )
+        # v0.2.9 F4：响应附带 rate_limit 状态块（前端展示用）
+        rate_limit = {
+            "used": 1,
+            "limit": 4,
+            "next_available": 0,
+            "cooldown_hours": 3.0,
+        }
         if body.get("action") == "apply":
             return {
                 "ok": True,
                 "applied": True,
                 "updated": len(body.get("patch") or {}),
+                "rate_limit": rate_limit,
             }
         return {
             "ok": True,
             "analysis": "test analysis",
             "suggested_patch": {},
+            "suggested_keywords_patch": None,
+            "persona_revision": None,
             "expected_effect": "test effect",
             "applied": False,
+            "rate_limit": rate_limit,
         }
 
 
@@ -384,11 +409,14 @@ def test_web_post_autotune_analyze_ok():
     assert body["suggested_patch"] == {}
     assert body["expected_effect"] == "test effect"
     assert body["applied"] is False
+    # v0.2.9 T6.1：响应附带 rate_limit 状态块（前端展示用）
+    assert "rate_limit" in body
+    assert body["rate_limit"]["limit"] == 4
     assert bridge.last_autotune_body == {"action": "analyze"}
 
 
 def test_web_post_autotune_apply_ok():
-    """apply 成功 → 200 + {ok, applied, updated}。"""
+    """apply 成功 → 200 + {ok, applied, updated, rate_limit}。"""
     bridge = _MockBridge()
     h = build_handlers(bridge)["POST /prosocial/autotune"]
     status, body = _run(h, body={"action": "apply", "patch": {"base_threshold": 0.7}})
@@ -396,6 +424,150 @@ def test_web_post_autotune_apply_ok():
     assert body["ok"] is True
     assert body["applied"] is True
     assert body["updated"] == 1
+    # v0.2.9 T6.1：apply 响应同样附带 rate_limit
+    assert "rate_limit" in body
+
+
+# v0.2.9 T6.2：force / keywords_patch / persona_revision 透传契约
+def test_web_post_autotune_force_passthrough():
+    """body.force=True 透传到 bridge.run_autotune（main 用以跳过速率限制）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(h, body={"action": "analyze", "force": True})
+    assert status == 200
+    assert body["ok"] is True
+    assert bridge.last_autotune_force is True
+    assert bridge.last_autotune_body.get("force") is True
+
+
+def test_web_post_autotune_force_default_false_when_absent():
+    """body 不含 force 时，bridge.last_autotune_force 为 None（main 侧 bool(None or False)=False）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    _run(h, body={"action": "analyze"})
+    # mock 直接读 body.get("force")，缺省返回 None；main 侧 bool(None or False)=False
+    assert bridge.last_autotune_force is None
+
+
+def test_web_post_autotune_force_non_bool_rejected():
+    """force 非 bool（如 "yes"/1）→ 400（与 post_dryrun.enabled 严格校验同原则）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(h, body={"action": "analyze", "force": "yes"})
+    assert status == 400
+    assert body["ok"] is False
+    assert "force" in body["error"]
+    # bridge 不应被调用
+    assert bridge.last_autotune_body is None
+
+
+def test_web_post_autotune_keywords_patch_passthrough():
+    """body.keywords_patch 透传到 bridge（main 用以调 interest_mgr.add/remove）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    kp = {
+        "add": [
+            {"kind": "high_keyword", "label": "core", "text": "Python"},
+        ],
+        "remove": [
+            {"kind": "hate_keyword", "label": "hate", "text": "广告"},
+        ],
+    }
+    status, body = _run(h, body={"action": "apply", "keywords_patch": kp})
+    assert status == 200
+    assert body["ok"] is True
+    assert bridge.last_autotune_keywords_patch == kp
+    assert bridge.last_autotune_body.get("keywords_patch") == kp
+
+
+def test_web_post_autotune_keywords_patch_non_dict_rejected():
+    """keywords_patch 非 dict（如字符串/列表）→ 400。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(h, body={"action": "apply", "keywords_patch": "not a dict"})
+    assert status == 400
+    assert body["ok"] is False
+    assert "keywords_patch" in body["error"]
+    assert bridge.last_autotune_body is None
+
+
+def test_web_post_autotune_keywords_patch_null_allowed():
+    """keywords_patch=None 显式允许（表示无关键词增删）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(
+        h,
+        body={
+            "action": "apply",
+            "keywords_patch": None,
+            "patch": {"base_threshold": 0.6},
+        },
+    )
+    assert status == 200
+    assert body["ok"] is True
+    assert bridge.last_autotune_keywords_patch is None
+
+
+def test_web_post_autotune_persona_revision_passthrough():
+    """body.persona_revision 透传到 bridge（main 合并入 persona_text 走重建路径）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    rev = "你是一只爱聊编程的猫娘，说话带「喵」尾音。"
+    status, body = _run(h, body={"action": "apply", "persona_revision": rev})
+    assert status == 200
+    assert body["ok"] is True
+    assert bridge.last_autotune_persona_revision == rev
+    assert bridge.last_autotune_body.get("persona_revision") == rev
+
+
+def test_web_post_autotune_persona_revision_non_str_rejected():
+    """persona_revision 非 str（如 dict/数字）→ 400。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(
+        h, body={"action": "apply", "persona_revision": {"text": "不是字符串"}}
+    )
+    assert status == 400
+    assert body["ok"] is False
+    assert "persona_revision" in body["error"]
+    assert bridge.last_autotune_body is None
+
+
+def test_web_post_autotune_persona_revision_null_allowed():
+    """persona_revision=None 显式允许（表示无人设改写）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(
+        h,
+        body={
+            "action": "apply",
+            "persona_revision": None,
+            "patch": {"base_threshold": 0.6},
+        },
+    )
+    assert status == 200
+    assert body["ok"] is True
+    assert bridge.last_autotune_persona_revision is None
+
+
+def test_web_post_autotune_force_with_apply_passthrough():
+    """force 字段在 apply action 下也透传（main 侧 apply 不限速但保留字段）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(
+        h,
+        body={
+            "action": "apply",
+            "force": True,
+            "keywords_patch": {"add": [], "remove": []},
+            "persona_revision": "新人设",
+        },
+    )
+    assert status == 200
+    assert body["ok"] is True
+    assert bridge.last_autotune_force is True
+    assert bridge.last_autotune_keywords_patch == {"add": [], "remove": []}
+    assert bridge.last_autotune_persona_revision == "新人设"
 
 
 def test_web_post_autotune_none_body_rejected():

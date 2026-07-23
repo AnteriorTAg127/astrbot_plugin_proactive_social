@@ -172,6 +172,24 @@
       .panel h2 .dot.live { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); animation: pulse 1.8s infinite; }
       @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--ok-soft); } 50% { box-shadow: 0 0 0 5px transparent; } }
       .panel .actions-row { display: flex; justify-content: flex-end; gap: 6px; margin-left: auto; }
+      /* v0.2.9 T7.4：自动触发状态指示灯（读 autotune_auto_trigger_enabled）*/
+      .panel h2 .autotune-status {
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 11px; color: var(--muted); font-weight: 500;
+        padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px;
+        background: var(--bg-elev); cursor: help;
+      }
+      .panel h2 .autotune-status .status-dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--subtle);   /* 默认灰（未知）*/
+      }
+      .panel h2 .autotune-status .status-dot.on {
+        background: var(--ok); box-shadow: 0 0 0 2px var(--ok-soft);
+      }
+      .panel h2 .autotune-status .status-dot.off {
+        background: var(--err); box-shadow: 0 0 0 2px var(--err-soft);
+      }
+      .panel h2 .autotune-status .status-label { letter-spacing: 0; text-transform: none; }
       .span-3 { grid-column: span 3; }
       .span-4 { grid-column: span 4; }
       .span-5 { grid-column: span 5; }
@@ -493,6 +511,88 @@
       .patch-table th, .patch-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
       .patch-table th { background: var(--bg-elev); color: var(--muted); font-weight: 600; }
       .patch-table td { font-family: var(--mono); word-break: break-all; }
+      /* v0.2.9 T7.1：速率限制状态行（弹窗顶部，今日已用 N/M + 下次可用时间）*/
+      .rate-limit-row {
+        display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+        padding: 8px 12px; margin-bottom: 12px;
+        background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px;
+        font-size: 12px;
+      }
+      .rate-limit-row .rl-item { display: flex; align-items: center; gap: 4px; }
+      .rate-limit-row .rl-label { color: var(--muted); }
+      .rate-limit-row .rl-value { font-family: var(--mono); color: var(--text); font-weight: 600; }
+      .rate-limit-row .rl-value.warn { color: var(--warn); }
+      .rate-limit-row .rl-value.err { color: var(--err); }
+      .rate-limit-row .rl-value.ok { color: var(--ok); }
+      .rate-limit-row .rl-bar {
+        flex: 1; min-width: 80px; height: 6px; border-radius: 3px;
+        background: var(--border); overflow: hidden; position: relative;
+      }
+      .rate-limit-row .rl-bar i {
+        display: block; height: 100%; background: var(--accent);
+        transition: width .3s;
+      }
+      .rate-limit-row .rl-bar i.warn { background: var(--warn); }
+      .rate-limit-row .rl-bar i.err { background: var(--err); }
+      .rate-limit-row .rl-bar i.ok { background: var(--ok); }
+      /* v0.2.9 T7.2：LLM 视野说明折叠块（弹窗内，默认折叠）*/
+      .modal-body details.vision-block {
+        margin: 6px 0 12px; border: 1px solid var(--border); border-radius: 8px;
+        background: var(--bg-elev);
+      }
+      .modal-body details.vision-block > summary {
+        cursor: pointer; padding: 8px 12px; font-size: 12px; font-weight: 600;
+        color: var(--accent); user-select: none;
+        list-style: none;  /* 自定义标记 */
+      }
+      .modal-body details.vision-block > summary::before {
+        content: "▶"; display: inline-block; margin-right: 6px;
+        transition: transform .15s; font-size: 10px;
+      }
+      .modal-body details.vision-block[open] > summary::before { transform: rotate(90deg); }
+      .modal-body details.vision-block > div.vision-content {
+        padding: 8px 12px 12px; font-size: 11px; color: var(--muted);
+        line-height: 1.7; border-top: 1px dashed var(--border);
+      }
+      .modal-body details.vision-block > div.vision-content ul {
+        margin: 6px 0 0; padding-left: 18px;
+      }
+      .modal-body details.vision-block > div.vision-content li { margin-bottom: 2px; }
+      .modal-body details.vision-block > div.vision-content code {
+        font-family: var(--mono); background: var(--card-2);
+        padding: 1px 4px; border-radius: 3px; font-size: 10px; color: var(--text);
+      }
+      /* v0.2.9 T7.3：三段 patch 表标题（标量/关键词/人设）*/
+      .patch-segment-title {
+        font-size: 12px; font-weight: 600; color: var(--text);
+        margin: 10px 0 4px; padding-left: 6px;
+        border-left: 3px solid var(--accent);
+      }
+      .patch-segment-title.keywords { border-color: var(--warn); }
+      .patch-segment-title.persona { border-color: var(--err); }
+      .patch-segment-empty { font-size: 11px; color: var(--subtle); margin: 4px 0 8px; font-style: italic; }
+      /* 关键词增删表：分 add/remove 两列 */
+      .kw-patch-table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 12px; }
+      .kw-patch-table th, .kw-patch-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+      .kw-patch-table th { background: var(--bg-elev); color: var(--muted); font-weight: 600; }
+      .kw-patch-table td { font-family: var(--mono); word-break: break-all; }
+      .kw-patch-table .kw-add { color: var(--ok); font-weight: 600; }
+      .kw-patch-table .kw-remove { color: var(--err); font-weight: 600; }
+      /* 人设改写 diff 块 */
+      .persona-diff {
+        margin: 6px 0 12px; border: 1px solid var(--border); border-radius: 8px;
+        overflow: hidden;
+      }
+      .persona-diff .diff-head {
+        padding: 6px 10px; background: var(--bg-elev);
+        font-size: 11px; color: var(--muted); font-weight: 600;
+        border-bottom: 1px solid var(--border);
+      }
+      .persona-diff .diff-body {
+        padding: 8px 12px; font-size: 12px; line-height: 1.6;
+        white-space: pre-wrap; word-break: break-word;
+        font-family: var(--mono);
+      }
 
       /* ===== 兴趣关键词 Tab4（F20）===== */
       .interests-wrap { padding: 0; }
@@ -624,7 +724,7 @@
     <header>
       <div class="brand">
         <div class="logo">PS</div>
-        <h1>主动社交<span class="sub">任务控制台 v0.2.8</span></h1>
+        <h1>主动社交<span class="sub">任务控制台 v0.2.9</span></h1>
       </div>
       <span class="meta" id="lastRefresh">未刷新</span>
       <span id="errBanner"></span>
@@ -646,11 +746,18 @@
       <!-- ===== Tab 1: 概览 ===== -->
       <div class="tab-panel active" data-tab="overview">
         <div class="panel-grid">
-          <!-- 0. LLM 诊断调参（F3）-->
+          <!-- 0. LLM 诊断调参（F3 / v0.2.9 T7 增强）-->
           <section class="panel span-12" id="panel-autotune">
-            <h2><span class="title">LLM 诊断调参</span><button class="btn" id="autotuneBtn" style="margin-left:auto;">🤖 LLM 诊断调参</button></h2>
+            <h2><span class="title">LLM 诊断调参</span>
+              <span class="autotune-status" id="autotuneAutoTriggerIndicator" title="自动触发开关：触发率越界时自动调 LLM 重写参数（读 autotune_auto_trigger_enabled 配置）">
+                <span class="status-dot" id="autotuneAutoTriggerDot">—</span>
+                <span class="status-label">自动触发</span>
+              </span>
+              <button class="btn" id="autotuneBtn" style="margin-left:auto;">🤖 LLM 诊断调参</button>
+              <button class="btn ghost" id="autotuneForceBtn" title="跳过速率限制强制分析（仍计入配额，ADMIN 用）">⚡ 强制分析</button>
+            </h2>
             <div class="meta" style="font-size:11px;color:var(--muted);margin-top:4px;">
-              基于最近决策数据由 LLM 分析并给出参数建议，弹窗中查看分析、建议参数与预期效果，确认后一键应用。
+              基于最近决策数据由 LLM 分析并给出参数建议（v0.2.9 全视野：标量/关键词/人设三段），弹窗中查看分析、建议与速率限制状态，确认后一键应用。
             </div>
             <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
               <div style="flex:0 0 auto;">
@@ -665,6 +772,14 @@
                 <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">补充指导（可选，告诉 LLM 你的特殊需求）</label>
                 <textarea id="tuneGuidance" rows="2" placeholder="例如：群内话题偏技术，讨论编程时更积极；夜间减少插话；不要用网络用语..." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--fg);font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
               </div>
+              <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:6px;align-items:flex-start;">
+                <label class="switch" style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer;" title="写入 autotune_auto_apply 配置：自动 analyze 成功后是否立即应用建议">
+                  <input type="checkbox" id="autotuneAutoApplyToggle" />
+                  <span class="slider"></span>
+                  <span>自动应用建议</span>
+                </label>
+                <span style="font-size:10px;color:var(--subtle);">关闭=仅缓存，手动确认；开启=自动 apply（谨慎）</span>
+              </div>
             </div>
             <details style="margin-top:8px;">
               <summary style="cursor:pointer;font-size:12px;color:var(--muted);user-select:none;">📖 工作机制说明（点击展开）</summary>
@@ -673,9 +788,14 @@
                 ① 向量通道：消息与兴趣关键词的余弦相似度（兴趣 s_int / 话题 s_topic / 回应 s_resp）<br>
                 ② 规则通道：冷却因子 c_cooldown + 沉默时长 p_silence<br>
                 融合分 = Σ(w_× 因子) + modifiers，≥ 阈值则触发。<br><br>
-                <strong>LLM 调参流程</strong>：分析最近 200 条决策（触发率 / 得分分布 / 五因子均衡 / 疲劳状态 / 抑制原因），
-                结合你选的<strong>风格偏好</strong>和<strong>补充指导</strong>，给出 18 项白名单参数的调整建议。
+                <strong>LLM 调参流程（v0.2.9 全视野）</strong>：分析最近 200 条决策（触发率 / 得分分布 / 五因子均衡 / 疲劳状态 / 抑制原因）
+                + 全量配置（~70 项可写键，减 6 项安全敏感 DENYLIST）+ 兴趣关键词 + 人设 + schedule + 群白名单 + adaptive 状态，
+                结合你选的<strong>风格偏好</strong>和<strong>补充指导</strong>，给出三段建议：
+                <strong>标量 patch</strong> / <strong>关键词增删</strong> / <strong>人设改写</strong>。
                 建议经类型/范围校验后才会应用，不会写入非法值。<br><br>
+                <strong>速率限制（v0.2.9 F4）</strong>：所有 analyze 调用施加冷却（默认 3h）+ 日上限（默认 4 次）双重限制，
+                避免成本失控。<strong>强制分析</strong>按钮跳过限制但仍计数（ADMIN 用）。
+                触发率越界（&gt;0.30/&lt;0.05）+ 样本达标时自动触发，受同一速率限制约束。<br><br>
                 <strong>安全网</strong>：自适应阈值控制器持续把触发率收敛到 5%-30% 健康区间；
                 每群每小时/每日发送上限（max_proactive_per_hour/day）作为最终兜底，任何参数调崩都不会话痨。
               </div>
@@ -927,7 +1047,11 @@
 	        interest_example_count: 3, interest_keyword_count: 12, long_window_inject_proactive: true,
 	        // --- v0.2.8 新增（F2/F3）---
 	        reply_via_pipeline: true, adaptive_threshold_enabled: true,
-	        max_proactive_per_hour: 5, max_proactive_per_day: 20
+	        max_proactive_per_hour: 5, max_proactive_per_day: 20,
+	        // --- v0.2.9 新增（F1/F3/F4 LLM 全视野 + 自动触发 + 速率限制）---
+	        autotune_safe_rate_hi: 0.30, autotune_safe_rate_lo: 0.05,
+	        autotune_auto_trigger_enabled: true, autotune_auto_apply: false,
+	        autotune_min_decisions: 30, autotune_cooldown_hours: 3.0, autotune_max_per_day: 4
       };
 
       // ============ 配置字段定义（key 与后端 get_config_view 返回键一致）============
@@ -1067,6 +1191,19 @@
             { key: "reply_keyword_ttl_seconds", label: "缓存有效期(秒)", type: "int", min: 1, max: 3600, hint: "关键词缓存超过此秒数后失效" },
             { key: "reply_keyword_min_score_to_trigger", label: "直接触发阈值", type: "float", min: 0, max: 1, step: 0.01, hint: "个人跟踪模块中，关键词匹配得分超过此值时直接触发回复" },
             { key: "reply_keyword_early_clear_low_score", label: "连续低分清除阈值", type: "float", min: 0, max: 1, step: 0.01, hint: "目标用户消息得分低于此值连续两次后清除缓存" },
+          ]
+        },
+        {
+          // --- v0.2.9 新增（F1/F3/F4 LLM 全视野 + 自动触发 + 速率限制）---
+          id: "autotune", label: "LLM 调参", doc: "LLM 诊断调参全权接管配置。v0.2.9 起 LLM 看到全量配置（除 6 项安全敏感键外 ~70 项可写）+ 兴趣关键词 + 人设 + schedule + 群白名单 + adaptive 状态，可输出标量 patch / 关键词增删 / 人设改写三段建议。触发率越界时自动调用 LLM 重写参数，并对所有调参调用施加冷却+日上限双重速率限制。",
+          fields: [
+            { key: "autotune_safe_rate_hi", label: "触发率安全上限", type: "float", min: 0, max: 1, step: 0.01, hint: "窗口触发率高于此值时自动触发 LLM 调参（建议 0.30，与 adaptive 收敛带 5%-30% 对齐）" },
+            { key: "autotune_safe_rate_lo", label: "触发率安全下限", type: "float", min: 0, max: 1, step: 0.01, hint: "窗口触发率低于此值时自动触发 LLM 调参（建议 0.05，低于则机器人过于沉默）" },
+            { key: "autotune_auto_trigger_enabled", label: "自动触发开关", type: "bool", hint: "触发率越界（>hi 或 <lo）且样本达标时自动调 LLM 重写参数；关闭则仅手动 /prosocial tune 触发" },
+            { key: "autotune_auto_apply", label: "自动应用建议", type: "bool", hint: "自动 analyze 成功后是否立即 apply（false=仅缓存建议，等用户手动 apply）；建议保持 false 便于人工审核" },
+            { key: "autotune_min_decisions", label: "自动触发最少样本", type: "int", min: 5, max: 200, hint: "adaptive 窗口样本数低于此值时不触发自动调参（样本太少统计无意义）" },
+            { key: "autotune_cooldown_hours", label: "调参冷却(小时)", type: "float", min: 0, max: 72, step: 0.5, hint: "LLM 调参最小调用间隔（小时，0=不限冷却）。ADMIN 可经 /prosocial tune force 跳过" },
+            { key: "autotune_max_per_day", label: "调参日上限", type: "int", min: 0, max: 100, hint: "LLM 调参每日最大调用次数（0=不限日数）。控制成本，自动触发同样受限" },
           ]
         },
       ];
@@ -1520,6 +1657,10 @@
         CONFIG_GROUPS.forEach(function (grp) {
           grp.fields.forEach(function (f) { fillField(f, loadedConfig[f.key], "cfg"); });
         });
+        // v0.2.9 T7.4：同步 autotune 面板的状态指示灯与复选框
+        // （这两个控件在 panel-autotune 内，不在 CONFIG_GROUPS 里，需要单独同步）
+        updateAutoTriggerIndicator(loadedConfig.autotune_auto_trigger_enabled);
+        syncAutoApplyToggle(loadedConfig.autotune_auto_apply);
       }
       function clearDirty() {
         var els = document.querySelectorAll("#cfgForm .dirty");
@@ -1668,41 +1809,221 @@
         document.getElementById("modalOverlay").classList.remove("show");
       }
 
-      // ============ LLM 诊断调参（F3）============
-      var _lastTuneSuggestion = {};   // 缓存最近一次 analyze 建议供 apply 使用
-      async function autotuneAnalyze() {
+      // ============ LLM 诊断调参（F3 / v0.2.9 T7.1-T7.5 增强）============
+      // _lastTuneSuggestion 缓存最近一次 analyze 的三段建议供 apply 使用：
+      //   { suggested_patch: {...}, suggested_keywords_patch: {...}|null, persona_revision: str|null }
+      var _lastTuneSuggestion = { suggested_patch: {}, suggested_keywords_patch: null, persona_revision: null };
+
+      // v0.2.9 T7.1：渲染速率限制状态行（今日已用 N/M + 下次可用时间 + 冷却进度）
+      function renderRateLimitRow(rl) {
+        if (!rl || typeof rl !== "object") return "";
+        var used = Number(rl.used) || 0;
+        var limit = Number(rl.limit) || 0;
+        var nextAvail = Number(rl.next_available) || 0;
+        var cooldownH = Number(rl.cooldown_hours) || 0;
+        // 配额使用率（0-100%），limit=0 时不显示进度条
+        var pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : 0;
+        var barCls = pct >= 100 ? "err" : (pct >= 75 ? "warn" : "ok");
+        var usedCls = pct >= 100 ? "err" : (pct >= 75 ? "warn" : "");
+        // 下次可用时间格式化
+        var nextText = "现在可用";
+        if (nextAvail > 0) {
+          var h = Math.floor(nextAvail / 3600);
+          var m = Math.floor((nextAvail % 3600) / 60);
+          if (h > 0) nextText = h + " 小时 " + m + " 分钟后";
+          else nextText = m + " 分钟后";
+        }
+        var barHtml = limit > 0
+          ? '<div class="rl-bar"><i class="' + barCls + '" style="width:' + pct + '%"></i></div>'
+          : "";
+        return '<div class="rate-limit-row">'
+          + '<div class="rl-item"><span class="rl-label">速率限制：</span>'
+          + '<span class="rl-value ' + usedCls + '">' + used + '/' + limit + '</span>'
+          + '<span class="rl-label">今日已用</span></div>'
+          + '<div class="rl-item"><span class="rl-label">下次可用：</span>'
+          + '<span class="rl-value">' + escapeHtml(nextText) + '</span></div>'
+          + (cooldownH > 0
+            ? '<div class="rl-item"><span class="rl-label">冷却：</span>'
+              + '<span class="rl-value">' + cooldownH + 'h</span></div>'
+            : "")
+          + barHtml
+          + '</div>';
+      }
+
+      // v0.2.9 T7.2：渲染 LLM 视野说明折叠块（默认折叠，点击展开）
+      function renderVisionBlock() {
+        return '<details class="vision-block">'
+          + '<summary>🤖 LLM 视野说明（点击展开查看 LLM 看到了什么）</summary>'
+          + '<div class="vision-content">'
+          + 'LLM 在分析时基于机器人<strong>完整画像</strong>做整体性调参，看到了：'
+          + '<ul>'
+          + '<li><strong>全量配置</strong>（~75 项普通键，减 <code>DENYLIST</code> 6 项安全敏感键 '
+          + '<code>enable</code>/<code>dry_run</code>/<code>group_whitelist</code>/<code>group_mode</code>/'
+          + '<code>chat_provider_id</code>/<code>embedding_provider_id</code>，可写 ~70 项）</li>'
+          + '<li><strong>兴趣关键词</strong>（<code>items</code> 各级 topic/weight/examples + '
+          + '<code>hate_keywords</code> 反感词 + <code>high_interest_keywords</code> 高唤醒词 + '
+          + '<code>rejected</code> 已过滤项）</li>'
+          + '<li><strong>人设文本</strong> <code>persona_text</code> + <strong>补充知识</strong> '
+          + '<code>persona_knowledge</code>（影响兴趣生成方向）</li>'
+          + '<li><strong>作息 schedule</strong>（活跃时段，非活跃时段仅被动响应）</li>'
+          + '<li><strong>群白名单</strong> <code>group_mode</code>/<code>group_whitelist</code></li>'
+          + '<li><strong>adaptive 状态</strong>（每群 <code>mult</code> 倍率 + <code>window_rate</code> '
+          + '窗口触发率 + <code>samples</code> 样本数）</li>'
+          + '<li><strong>provider 名称</strong>（<code>chat_provider_id</code>/<code>embedding_provider_id</code> '
+          + '解析为人类可读的 provider 名）</li>'
+          + '<li><strong>近期决策统计</strong>（最近 200 条：触发率/得分分布/五因子均衡/疲劳/抑制原因）</li>'
+          + '</ul>'
+          + 'LLM 输出三段建议：<code>suggested_patch</code>（标量配置）/ '
+          + '<code>suggested_keywords_patch</code>（关键词增删）/ <code>persona_revision</code>（人设改写，可选）。'
+          + 'DENYLIST 键若被输出会被自动丢弃并注明。'
+          + '</div>'
+          + '</details>';
+      }
+
+      // v0.2.9 T7.3 段 1：渲染标量配置变更表（沿用既有 patch-table）
+      function renderScalarPatchTable(patch) {
+        var keys = patch ? Object.keys(patch) : [];
+        if (!keys.length) return '<div class="patch-segment-empty">无标量配置变更</div>';
+        var rows = keys.map(function (k) {
+          return '<tr><td>' + escapeHtml(k) + '</td><td>'
+            + escapeHtml(JSON.stringify(patch[k])) + '</td></tr>';
+        }).join("");
+        return '<table class="patch-table"><thead><tr><th>键</th><th>建议值</th></tr></thead><tbody>'
+          + rows + '</tbody></table>';
+      }
+
+      // v0.2.9 T7.3 段 2：渲染关键词变更表（add/remove 两列，含 kind/label/text）
+      function renderKeywordsPatchTable(kp) {
+        if (!kp || (typeof kp === "object" && !kp.add && !kp.remove)) {
+          return '<div class="patch-segment-empty">无关键词变更</div>';
+        }
+        var addList = (kp && kp.add) || [];
+        var removeList = (kp && kp.remove) || [];
+        if (!addList.length && !removeList.length) {
+          return '<div class="patch-segment-empty">无关键词变更</div>';
+        }
+        var maxLen = Math.max(addList.length, removeList.length);
+        var rows = "";
+        for (var i = 0; i < maxLen; i++) {
+          var a = addList[i];
+          var r = removeList[i];
+          var aHtml = a
+            ? '<span class="kw-add">+</span> '
+              + escapeHtml(a.kind || "?") + " / " + escapeHtml(a.label || "?") + " / "
+              + escapeHtml(a.text || "")
+            : "";
+          var rHtml = r
+            ? '<span class="kw-remove">−</span> '
+              + escapeHtml(r.kind || "?") + " / " + escapeHtml(r.label || "?") + " / "
+              + escapeHtml(r.text || "")
+            : "";
+          rows += '<tr><td>' + aHtml + '</td><td>' + rHtml + '</td></tr>';
+        }
+        return '<table class="kw-patch-table"><thead><tr>'
+          + '<th>新增（add）</th><th>删除（remove）</th>'
+          + '</tr></thead><tbody>' + rows + '</tbody></table>';
+      }
+
+      // v0.2.9 T7.3 段 3：渲染人设改写 diff 块（仅当 persona_revision 非空时）
+      function renderPersonaRevisionDiff(rev) {
+        if (!rev || typeof rev !== "string" || !rev.trim()) {
+          return '<div class="patch-segment-empty">无人设改写建议</div>';
+        }
+        return '<div class="persona-diff">'
+          + '<div class="diff-head">📝 LLM 建议的新人设文本（应用后会合并入 persona_text 并触发兴趣重建）</div>'
+          + '<div class="diff-body">' + escapeHtml(rev) + '</div>'
+          + '</div>';
+      }
+
+      // v0.2.9 T7.4：更新自动触发状态指示灯（读 autotune_auto_trigger_enabled）
+      function updateAutoTriggerIndicator(enabled) {
+        var dot = document.getElementById("autotuneAutoTriggerDot");
+        if (!dot) return;
+        dot.classList.remove("on", "off");
+        if (enabled === true) {
+          dot.classList.add("on");
+          dot.textContent = "ON";
+        } else if (enabled === false) {
+          dot.classList.add("off");
+          dot.textContent = "OFF";
+        } else {
+          dot.textContent = "—";
+        }
+      }
+
+      // v0.2.9 T7.4：同步自动应用复选框（不触发 change 事件，避免循环保存）
+      function syncAutoApplyToggle(value) {
+        var el = document.getElementById("autotuneAutoApplyToggle");
+        if (!el) return;
+        // 标记 _syncing 防止 change 监听器把这次同步当作用户操作触发 POST
+        el._syncing = true;
+        el.checked = value === true;
+        el._syncing = false;
+      }
+
+      async function autotuneAnalyze(force) {
         if (!bridge) return;
+        // v0.2.9 T7.5：force 默认 false；强制分析按钮传 true
+        if (force !== true) force = false;
         var style = document.getElementById("tuneStyle").value;
         var guidance = document.getElementById("tuneGuidance").value;
         // 持久化偏好到 localStorage，下次打开自动恢复
         try {
           localStorage.setItem("prosocial_tune_style", style);
           localStorage.setItem("prosocial_tune_guidance", guidance);
+          // v0.2.9 T7.5：force 偏好持久化（可选，下次打开恢复）
+          localStorage.setItem("prosocial_tune_force", force ? "1" : "0");
         } catch (e) { /* localStorage 不可用时静默 */ }
-        showModal("LLM 诊断调参", '<div class="empty">正在分析最近决策数据…</div>');
+        var title = force ? "⚡ 强制 LLM 诊断调参" : "🤖 LLM 诊断调参";
+        showModal(title, '<div class="empty">正在分析最近决策数据' + (force ? "（跳过速率限制）" : "") + '…</div>');
         try {
-          var resp = await bridge.apiPost("prosocial/autotune", { action: "analyze", style: style, guidance: guidance });
+          // v0.2.9 T7.5：发送 body 含 force 字段
+          var resp = await bridge.apiPost("prosocial/autotune", {
+            action: "analyze", style: style, guidance: guidance, force: force
+          });
           if (!resp || !resp.ok) {
-            showModal("诊断失败", escapeHtml((resp && resp.error) || "未知错误"));
+            // v0.2.9 F4：rate_limited 时 resp 仍附带 rate_limit 状态块，便于展示配额
+            var rlHtml = renderRateLimitRow(resp && resp.rate_limit);
+            var errBody = (rlHtml ? rlHtml : "")
+              + '<div class="empty">' + escapeHtml((resp && resp.error) || "未知错误")
+              + (resp && resp.reason ? "（原因：" + escapeHtml(resp.reason) + "）" : "") + '</div>'
+              + '<div class="meta" style="font-size:11px;color:var(--muted);margin-top:8px;">'
+              + '提示：被速率限制时可点「⚡ 强制分析」跳过（仍计入配额）。</div>';
+            showModal("诊断失败", errBody);
             return;
           }
-          _lastTuneSuggestion = resp.suggested_patch || {};
-          var patchKeys = Object.keys(_lastTuneSuggestion);
-          var patchRows = patchKeys.map(function (k) {
-            return '<tr><td>' + escapeHtml(k) + '</td><td>'
-              + escapeHtml(JSON.stringify(_lastTuneSuggestion[k])) + '</td></tr>';
-          }).join("");
-          var body = '<h3>🤖 LLM 诊断结果</h3>'
+          // v0.2.9 T7.3：缓存三段建议供 apply 复用
+          _lastTuneSuggestion = {
+            suggested_patch: resp.suggested_patch || {},
+            suggested_keywords_patch: resp.suggested_keywords_patch || null,
+            persona_revision: resp.persona_revision || null
+          };
+          var patchKeys = Object.keys(_lastTuneSuggestion.suggested_patch);
+          // v0.2.9 T7.1：渲染速率限制状态行（弹窗顶部）
+          var body = renderRateLimitRow(resp.rate_limit)
+            // v0.2.9 T7.2：LLM 视野说明折叠块（默认折叠，点击展开）
+            + renderVisionBlock()
+            + '<h3>🤖 LLM 诊断结果</h3>'
             + '<div><strong>分析：</strong><pre style="white-space:pre-wrap;">'
             + escapeHtml(resp.analysis || "") + '</pre></div>'
-            + '<div><strong>建议参数：</strong>'
-            + (patchKeys.length
-              ? '<table class="patch-table"><thead><tr><th>键</th><th>建议值</th></tr></thead><tbody>'
-                + patchRows + '</tbody></table>'
-              : '<div class="empty">无建议参数</div>')
-            + '</div>'
+            // v0.2.9 T7.3 段 1：标量配置变更
+            + '<div class="patch-segment-title">① 标量配置变更（' + patchKeys.length + ' 项）</div>'
+            + renderScalarPatchTable(_lastTuneSuggestion.suggested_patch)
+            // v0.2.9 T7.3 段 2：关键词变更
+            + '<div class="patch-segment-title keywords">② 关键词变更</div>'
+            + renderKeywordsPatchTable(_lastTuneSuggestion.suggested_keywords_patch)
+            // v0.2.9 T7.3 段 3：人设改写
+            + '<div class="patch-segment-title persona">③ 人设改写</div>'
+            + renderPersonaRevisionDiff(_lastTuneSuggestion.persona_revision)
             + '<div><strong>预期效果：</strong>' + escapeHtml(resp.expected_effect || "—") + '</div>'
-            + '<button class="btn" id="autotuneApplyBtn">应用建议</button>';
+            // 应用按钮：仅当三段至少有一段非空时才可应用
+            + (patchKeys.length
+                || (_lastTuneSuggestion.suggested_keywords_patch
+                    && (_lastTuneSuggestion.suggested_keywords_patch.add
+                        || _lastTuneSuggestion.suggested_keywords_patch.remove))
+                || _lastTuneSuggestion.persona_revision
+              ? '<button class="btn" id="autotuneApplyBtn">应用建议</button>'
+              : '<div class="empty">无可应用的建议</div>');
           showModal("🤖 LLM 诊断结果", body);
           var applyBtn = document.getElementById("autotuneApplyBtn");
           if (applyBtn) applyBtn.addEventListener("click", autotuneApply);
@@ -1711,15 +2032,42 @@
         }
       }
       async function autotuneApply() {
-        var patch = _lastTuneSuggestion || {};
+        // v0.2.9 T7.3：apply 时同时发送三段建议（标量 patch + keywords_patch + persona_revision）
+        var sug = _lastTuneSuggestion || {};
+        var patch = sug.suggested_patch || {};
+        var keywordsPatch = sug.suggested_keywords_patch || null;
+        var personaRevision = sug.persona_revision || null;
+        // 没有任何建议时直接报错
+        if (!Object.keys(patch).length && !keywordsPatch && !personaRevision) {
+          toast("无可应用的建议", "err");
+          return;
+        }
         try {
-          var resp = await bridge.apiPost("prosocial/autotune", { action: "apply", patch: patch });
+          var resp = await bridge.apiPost("prosocial/autotune", {
+            action: "apply",
+            patch: patch,
+            keywords_patch: keywordsPatch,
+            persona_revision: personaRevision
+          });
           if (resp && resp.ok) {
-            toast("已应用 " + (resp.updated || 0) + " 项", "ok");
+            // v0.2.9 T7.3：apply 响应含 updated / keywords_updated / regenerate 多个计数
+            var msg = "已应用 " + (resp.updated || 0) + " 项标量";
+            if (resp.keywords_updated) msg += " + " + resp.keywords_updated + " 项关键词";
+            if (resp.regenerate) msg += "（人设变更已触发兴趣重建）";
+            toast(msg, "ok");
             closeModal();
             loadConfig();   // 刷新配置面板，反映新参数
+            // v0.2.9 T7.1：apply 后刷新速率限制状态（用响应附带的 rate_limit）
+            // （弹窗已关闭，状态行下次打开弹窗时自动刷新）
           } else {
+            // v0.2.9 F4：apply 失败时仍可能附带 rate_limit
+            var rlHtml = renderRateLimitRow(resp && resp.rate_limit);
             toast("应用失败：" + ((resp && resp.error) || "未知错误"), "err");
+            // 在弹窗内追加状态行（如有）
+            if (rlHtml) {
+              var modalBody = document.getElementById("modalBody");
+              if (modalBody) modalBody.insertAdjacentHTML("afterbegin", rlHtml);
+            }
           }
         } catch (e) {
           toast("应用异常：" + String(e), "err");
@@ -2300,7 +2648,14 @@
         });
 
         // F3 LLM 诊断调参按钮 + 通用弹窗关闭
-        document.getElementById("autotuneBtn").addEventListener("click", autotuneAnalyze);
+        document.getElementById("autotuneBtn").addEventListener("click", function () {
+          // v0.2.9 T7.5：普通按钮 force=false（受速率限制）
+          autotuneAnalyze(false);
+        });
+        // v0.2.9 T7.5：强制分析按钮——跳过速率限制（仍 record 计入配额，ADMIN 用）
+        document.getElementById("autotuneForceBtn").addEventListener("click", function () {
+          autotuneAnalyze(true);
+        });
         document.getElementById("modalClose").addEventListener("click", closeModal);
         // 弹窗遮罩不关闭——LLM 诊断结果耗时且宝贵，仅 × 按钮可关（与 F23 向导一致）
         // 恢复上次保存的调参偏好（风格 + 补充指导）
@@ -2309,7 +2664,33 @@
           var savedGuidance = localStorage.getItem("prosocial_tune_guidance");
           if (savedStyle) document.getElementById("tuneStyle").value = savedStyle;
           if (savedGuidance) document.getElementById("tuneGuidance").value = savedGuidance;
+          // v0.2.9 T7.5：force 偏好不在此自动恢复（避免下次默认强制），
+          // 仅在用户点「强制分析」按钮时主动持久化，下次点普通按钮仍走 false 路径
         } catch (e) { /* localStorage 不可用时静默 */ }
+
+        // v0.2.9 T7.4：自动应用复选框——读写 autotune_auto_apply 配置
+        // change 时 POST /prosocial/config 保存，loadConfig 时反向同步显示
+        document.getElementById("autotuneAutoApplyToggle").addEventListener("change", function () {
+          // _syncing 标志由 syncAutoApplyToggle 设置，表示这是 loadConfig 回填，
+          // 不应触发 POST（避免 GET→POST 循环）
+          if (this._syncing) return;
+          if (!bridge) return;
+          var on = this.checked;
+          this.disabled = true;
+          callApi(bridge.apiPost("prosocial/config", { autotune_auto_apply: on }))
+            .then(function () {
+              toast("自动应用已" + (on ? "开启" : "关闭"), "ok");
+              loadedConfig.autotune_auto_apply = on;
+            })
+            .catch(function (e) {
+              showErr("自动应用切换失败: " + e.message);
+              // 回滚 UI
+              syncAutoApplyToggle(!on);
+            })
+            .finally(function () {
+              document.getElementById("autotuneAutoApplyToggle").disabled = false;
+            });
+        });
 
         // F11 导出 JSON 按钮
 	        document.getElementById("exportBtn").addEventListener("click", function() {

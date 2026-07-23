@@ -70,12 +70,25 @@ class WebBridge:
         ...
 
     async def run_autotune(self, body: dict) -> dict:  # pragma: no cover
-        """LLM 诊断调参（F3）。
+        """LLM 诊断调参（v0.2.8 F3 引入；v0.2.9 T6.1 扩展透传字段）。
 
-        body.action: "analyze" 分析最近决策数据生成建议；
-                     "apply"   应用建议 patch（body.patch 可选，缺省用缓存建议）。
-        返回 {ok, analysis?, suggested_patch?, expected_effect?, applied, updated?, error?}。
-        ok=False（如 LLM 解析失败、白名单校验失败）时仍由本方法返回，web 层透传给前端。
+        body 字段：
+        - action: ``"analyze"`` 分析最近决策数据生成建议；``"apply"`` 应用建议 patch
+          （``body.patch`` 可选，缺省用 main 侧缓存的 ``_last_tune_suggestion``）
+        - patch: apply 时可选 patch（缺省用 main 侧缓存建议）
+        - style / guidance: analyze 风格偏好与用户补充指导（v0.2.8 F3）
+        - force: bool，``True`` 跳过速率限制（v0.2.9 F4，仅 analyze 生效，仍 record 计入配额）
+        - keywords_patch: apply 关键词增删（v0.2.9 F2，结构见 main._apply_keywords_patch）
+        - persona_revision: apply 人设改写文本（v0.2.9 F2，合并入 persona_text 走重建路径）
+
+        返回扁平 dict（透传给前端顶层字段）：
+        ``{ok, analysis?, suggested_patch?, suggested_keywords_patch?, persona_revision?,
+        expected_effect?, applied, updated?, regenerate?, keywords_updated?, rate_limit, error?}``
+
+        - ``rate_limit``：v0.2.9 F4 状态块 ``{used, limit, next_available, cooldown_hours}``，
+          无论 ok=True/False 都附带（前端展示「今日已用 N/M、下次可用时间」）
+        - ok=False（如 LLM 解析失败、DENYLIST 校验失败、rate_limited）时仍由本方法返回，
+          web 层透传给前端在 resolve 路径检查 ``.ok`` 与 ``.error``。
         """
         ...
 
@@ -220,11 +233,24 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
                 return _err("请求体不能为空")
             if not isinstance(body, dict):
                 return _err("请求体必须是 JSON 对象")
+            # v0.2.9 T6.1：显式校验 force / keywords_patch / persona_revision 类型
+            # （main.run_autotune 会再校验，web 层前置拦截非法类型便于排查，
+            # 与 post_dryrun 严格校验 enabled 是 bool 同一原则）
+            if "force" in body and not isinstance(body["force"], bool):
+                return _err("force 必须是布尔值")
+            if "keywords_patch" in body and body["keywords_patch"] is not None:
+                if not isinstance(body["keywords_patch"], dict):
+                    return _err("keywords_patch 必须是 JSON 对象")
+            if "persona_revision" in body and body["persona_revision"] is not None:
+                if not isinstance(body["persona_revision"], str):
+                    return _err("persona_revision 必须是字符串")
             # run_autotune 返回扁平 dict {ok, analysis?, suggested_patch?,
-            # expected_effect?, applied, updated?, error?}，透传为响应体顶层字段
-            # （前端 bridge.apiPost resolve 后直接读 resp.analysis 等，非 _ok 包装）。
-            # ok=False（LLM 解析失败等业务错误）仍用 200，便于前端在 resolve 路径检查 .ok；
-            # 协议错误（非 dict body）与异常走 400/500，bridge reject 由前端 catch 处理。
+            # suggested_keywords_patch?, persona_revision?, expected_effect?,
+            # applied, updated?, regenerate?, keywords_updated?, rate_limit, error?}，
+            # 透传为响应体顶层字段（前端 bridge.apiPost resolve 后直接读 resp.rate_limit
+            # 等，非 _ok 包装）。ok=False（rate_limited/LLM 解析失败等业务错误）仍用 200，
+            # 便于前端在 resolve 路径检查 .ok；协议错误（非 dict body/字段类型错）与
+            # 异常走 400/500，bridge reject 由前端 catch 处理。
             result = await bridge.run_autotune(body)
             if not isinstance(result, dict):
                 return _err("run_autotune 返回类型异常", 500)
