@@ -59,4 +59,4 @@
 
 ## 依赖
 
-见 `requirements.txt`。核心依赖：`numpy`（向量计算）。
+见 `requirements.txt`。核心依赖：`numpy`（向量计算）、`aiosqlite`（配置持久化）。

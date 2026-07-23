@@ -1,4 +1,4 @@
-"""test_v0_2_6.py —— v0.2.6 修复项（F1-F12）单元测试。
+"""test_v0_2_6.py —— v0.2.6/v0.2.7 修复项（F1-F12）单元测试。
 
 测试对象：
 - core/config_store.py → F1/F3/F6/F9 的 DEFAULT_CONFIG/VALIDATORS/SPECIAL_KEYS
@@ -10,7 +10,7 @@
 - main.py → F1/F3/F4 的集成逻辑
 
 覆盖修复点（F1-F12）：
-  F1  配置持久化修复：initialize() 中先 load KV 再构造 scheduler
+  F1  配置持久化修复：使用独立 SQLite 数据库替代 KV 存储，解决插件重载后配置丢失
   F2  兴趣增删改查：add_item / update_item / remove_item
   F3  Embedding 提供商迁移：SPECIAL_KEYS 含 embedding_provider_id，DEFAULT_CONFIG 不含
   F4  人设变更触发兴趣重建：set_config_view 检测 persona_text 变更 → regenerate
@@ -27,10 +27,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
-
-import pytest
 
 from core.config_store import SPECIAL_KEYS, ConfigStore
 from core.interest import InterestManager
@@ -38,44 +35,77 @@ from core.models import BatchDecision, InterestLevel, ScoreFactors
 from core.prompts import build_interest_prompt
 from core.web import build_handlers
 
-
 # ======================================================================
-# F1: 配置持久化修复
+# F1: 配置持久化修复（SQLite 替代 KV）
 # ======================================================================
 
 
-def test_f1_config_store_load_from_kv(mock_kv):
-    """F1: ConfigStore.load() 从 KV 读取配置覆盖默认值。
+def test_f1_config_store_load_from_sqlite(tmp_data_dir):
+    """F1: ConfigStore.load() 从 SQLite 读取配置覆盖默认值。
 
-    initialize() 中先 load KV 再构造 scheduler，消除重载竞态。
-    本测试验证 load 本身能正确从 KV 加载配置到缓存。
+    使用独立 SQLite 数据库（config.db），不再依赖 AstrBot KV 存储，
+    彻底解决插件重载后配置丢失的问题。
     """
 
     async def _run():
-        store = ConfigStore()
-        # 写入 KV 模拟已持久化的配置
+        store = ConfigStore(tmp_data_dir / "config.db")
+        # 先写入 SQLite
         override = {"base_threshold": 0.8, "w_int": 2.0}
-        await mock_kv.set("config", json.dumps(override))
-        # load 从 KV 读取并合并到缓存
-        await store.load(mock_kv.get)
-        cfg = store.get()
+        ok, msg = await store.set_many(override)
+        assert ok is True
+        await store.close()
+        # 模拟插件重载：新建 ConfigStore 实例，从同一 db 加载
+        store2 = ConfigStore(tmp_data_dir / "config.db")
+        await store2.load()
+        cfg = store2.get()
         assert cfg["base_threshold"] == 0.8
         assert cfg["w_int"] == 2.0
         # 未覆盖的键保持默认
         assert cfg["w_topic"] == ConfigStore.DEFAULT_CONFIG["w_topic"]
+        await store2.close()
 
     asyncio.run(_run())
 
 
-def test_f1_config_store_load_kv_missing_keeps_default(mock_kv):
-    """F1: KV 无配置时 load 不改缓存，保持默认值。"""
+def test_f1_config_store_load_sqlite_missing_keeps_default(tmp_data_dir):
+    """F1: SQLite 无配置数据时 load 不改缓存，保持默认值。"""
 
     async def _run():
-        store = ConfigStore()
-        # KV 无 "config" 键
-        await store.load(mock_kv.get)
+        store = ConfigStore(tmp_data_dir / "config.db")
+        # db 文件尚不存在
+        await store.load()
         cfg = store.get()
         assert cfg["base_threshold"] == ConfigStore.DEFAULT_CONFIG["base_threshold"]
+        await store.close()
+
+    asyncio.run(_run())
+
+
+def test_f1_config_survives_reload(tmp_data_dir):
+    """F1: 模拟插件重载场景——set_many 后新建实例 load，配置不丢失。
+
+    这是 F1 的核心测试：验证配置在「插件重载」后不会消失。
+    流程：store1 写入配置 → close → store2 从同一 db load → 配置仍在。
+    """
+
+    async def _run():
+        # 第一次加载：修改配置
+        store1 = ConfigStore(tmp_data_dir / "config.db")
+        await store1.load()
+        await store1.set_many({
+            "base_threshold": 0.42,
+            "persona_text": "我是测试机器人",
+            "group_whitelist": ["group_123"],
+        })
+        await store1.close()
+        # 模拟插件重载：新实例从同一 SQLite 数据库加载
+        store2 = ConfigStore(tmp_data_dir / "config.db")
+        await store2.load()
+        cfg = store2.get()
+        assert cfg["base_threshold"] == 0.42
+        assert cfg["persona_text"] == "我是测试机器人"
+        assert cfg["group_whitelist"] == ["group_123"]
+        await store2.close()
 
     asyncio.run(_run())
 
@@ -383,7 +413,7 @@ class _MockBridgeExport:
             "decisions": [{"ts": 1000, "score": 0.8}],
             "fatigue": {"value": 1.2, "level": "low"},
             "interests": {"generated": True, "items": []},
-            "version": "v0.2.6",
+            "version": "v0.2.7",
             "export_time": 1721712000.0,
         }
 
@@ -409,7 +439,7 @@ def test_f11_export_handler_returns_complete_data():
     assert "fatigue" in data
     assert "interests" in data
     assert "version" in data
-    assert data["version"] == "v0.2.6"
+    assert data["version"] == "v0.2.7"
 
 
 def test_f11_export_handler_bridge_exception_500():
@@ -450,17 +480,20 @@ def test_f12_batch_decision_embedding_degraded_on_null_emb():
     async def _run():
         # 构造一个场景使嵌入失败 → batch_emb 为 None
         # 使用 mock_embed fail mode
-        from tests.conftest import _MockEmbed, _MockLLM, _MockSend, _MockKV, _MockLog
+        import tempfile
+        from pathlib import Path
+
         from core.ratelimit import TokenBucketRateLimiter
         from core.scheduler import SocialScheduler
+
+        from tests.conftest import _MockEmbed, _MockKV, _MockLLM, _MockLog, _MockSend
 
         mock_embed = _MockEmbed(dim=8)
         mock_llm = _MockLLM()
         mock_send = _MockSend()
         mock_kv = _MockKV()
         mock_log = _MockLog()
-        from pathlib import Path
-        import tempfile
+
         tmp = Path(tempfile.mkdtemp())
         mock_config = {"enable": True, "dry_run": False, "group_mode": "all",
                        "glance_enable": False, "embedding_rate_limit_per_min": 30,

@@ -9,13 +9,15 @@
 4. 指令组 ``/prosocial``（status / dryrun / enable / disable / persona / scores / replay，
    全部 ADMIN 权限）。
 5. 注册 7 个 Web API（包装 ``core/web.py`` 的 ``build_handlers``）。
-6. ``terminate()``：``scheduler.stop()``（cancel+await 所有任务，持久化）。
+6. ``terminate()``：``scheduler.stop()``（cancel+await 所有任务，持久化）+
+   ``config_store.close()``（关闭 SQLite 连接）。
 
 设计要点：
-- ``ConfigStore``（v0.2.1）：普通参数由 ConfigStore 管理（默认值 + KV 持久化覆盖 +
+- ``ConfigStore``（v0.2.7）：普通参数由 ConfigStore 管理（默认值 + SQLite 持久化覆盖 +
   内存缓存），``_config_getter`` 合并 ConfigStore 缓存与 ``AstrBotConfig`` 特殊选择器
   （``chat_provider_id``），scheduler 每次决策实时读取（热更新：set_many 改缓存后立即生效）。
-- ``on_astrbot_loaded`` 钩子：从 KV 加载配置覆盖项到 ConfigStore 缓存。
+  配置存储使用独立 SQLite 数据库（config.db），不再依赖 AstrBot KV 存储，
+  彻底解决插件重载后配置丢失的问题。
 - 嵌入 provider 解析：``embedding_provider_id`` 为空时用 ``get_all_embedding_providers()[0]``。
 - LLM provider 解析：``chat_provider_id`` 为空时用 ``get_using_provider(None)`` 取全局默认，
   再退到 ``get_all_providers()[0]``（主动发言无 umo 上下文，不能用 ``get_current_chat_provider_id``）。
@@ -58,7 +60,7 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.6")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.7")
 class ProSocialPlugin(Star):
     """主动社交插件入口（模块 G）。
 
@@ -69,13 +71,15 @@ class ProSocialPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
-        # ConfigStore：普通参数的默认值 + KV 持久化覆盖 + 内存缓存（v0.2.1，PRD F15.1）。
-        # __init__ 时用 DEFAULT_CONFIG 填充缓存，保证同步可读；KV 覆盖在 on_astrbot_loaded 加载。
-        self._config_store = ConfigStore()
-        # 特殊选择器键（chat_provider_id 等）仍由 AstrBotConfig 原生承载，不走 ConfigStore
-        self._SPECIAL_KEYS = SPECIAL_KEYS
         # 数据目录：data/plugin_data/astrbot_plugin_proactive_social/
         self.data_dir = Path(get_astrbot_data_path()) / "plugin_data" / _PLUGIN_NAME
+        # ConfigStore：普通参数的默认值 + SQLite 持久化覆盖 + 内存缓存（v0.2.7）。
+        # __init__ 时用 DEFAULT_CONFIG 填充缓存，保证同步可读；SQLite 覆盖在 initialize 中加载。
+        # 使用独立 SQLite 数据库（config.db），不再依赖 AstrBot KV 存储，
+        # 彻底解决插件重载后配置丢失的问题。
+        self._config_store = ConfigStore(self.data_dir / "config.db")
+        # 特殊选择器键（chat_provider_id 等）仍由 AstrBotConfig 原生承载，不走 ConfigStore
+        self._SPECIAL_KEYS = SPECIAL_KEYS
         # 兴趣管理器（启动时仅创建，加载在 scheduler.start 内触发）
         self.interest_mgr = InterestManager(self.data_dir, self._log)
         # 限流器（速率在 scheduler 主循环里实时同步配置）
@@ -107,12 +111,12 @@ class ProSocialPlugin(Star):
     async def initialize(self):
         """AstrBot 加载完成后调用：构造注入回调、scheduler、注册 Web API、启动调度。"""
         try:
-            # F1: 在构造 scheduler 之前先加载 KV 配置，消除重载竞态
+            # 从 SQLite 加载配置覆盖项（不再依赖 AstrBot KV 存储）
             try:
-                await self._config_store.load(self.get_kv_data)
-                self._log("info", "KV 配置已加载（initialize 阶段）")
+                await self._config_store.load()
+                self._log("info", "SQLite 配置已加载")
             except Exception as e:
-                self._log("warning", f"加载 KV 配置失败，使用默认值: {e}")
+                self._log("warning", f"加载 SQLite 配置失败，使用默认值: {e}")
 
             self._llm_fn = self._make_llm_fn()
             self._embed_fn = self._make_embed_fn()
@@ -156,7 +160,8 @@ class ProSocialPlugin(Star):
     async def on_loaded(self):
         """AstrBot 全部插件加载完成后：加载兴趣人工过滤列表。
 
-        F1: 配置 KV 加载已移至 initialize() 中（在构造 scheduler 之前），
+        配置持久化已迁移到独立 SQLite 数据库（config.db），
+        在 initialize() 中直接加载，不再依赖 AstrBot KV 存储。
         此处仅保留 interest_rejected 加载。
         """
         # 加载兴趣 rejected 列表（F20）
@@ -625,7 +630,7 @@ class ProSocialPlugin(Star):
         """
         if not isinstance(patch, dict):
             return False, "patch 必须是 JSON 对象"
-        ok, msg = await self._config_store.set_many(patch, self.put_kv_data)
+        ok, msg = await self._config_store.set_many(patch)
         if not ok:
             return False, msg
         # F4: 人设变更触发兴趣重新生成
@@ -683,9 +688,9 @@ class ProSocialPlugin(Star):
             if not isinstance(wl, list) or not all(isinstance(x, str) for x in wl):
                 return False, "whitelist 必须是字符串列表"
             updates["group_whitelist"] = wl
-        # 事务性写入 ConfigStore（校验 + 缓存 + KV）
+        # 事务性写入 ConfigStore（校验 + 缓存 + SQLite）
         if updates:
-            ok, msg = await self._config_store.set_many(updates, self.put_kv_data)
+            ok, msg = await self._config_store.set_many(updates)
             if not ok:
                 return False, msg
         # group_toggles 走 scheduler（独立 KV 键，不经 ConfigStore）
@@ -819,7 +824,7 @@ class ProSocialPlugin(Star):
                 self.scheduler._fatigue.snapshot(time.time()) if self.scheduler else {}
             ),
             "interests": self.get_interests_view(),
-            "version": "v0.2.6",
+            "version": "v0.2.7",
             "export_time": time.time(),
         }
 
@@ -907,9 +912,13 @@ class ProSocialPlugin(Star):
     # terminate
     # ------------------------------------------------------------------ #
     async def terminate(self):
-        """插件卸载/停用时调用：scheduler.stop()（cancel+await 所有任务，持久化）。"""
+        """插件卸载/停用时调用：scheduler.stop() + config_store.close()。"""
         try:
             if self.scheduler is not None:
                 await self.scheduler.stop()
         except Exception as e:
-            self._log("warning", f"terminate 异常: {e}")
+            self._log("warning", f"terminate scheduler.stop 异常: {e}")
+        try:
+            await self._config_store.close()
+        except Exception as e:
+            self._log("warning", f"terminate config_store.close 异常: {e}")

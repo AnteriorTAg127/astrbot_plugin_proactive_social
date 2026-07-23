@@ -1,18 +1,26 @@
-"""配置存储管理器（v0.2.1，PRD F15.1）。
+"""配置存储管理器（v0.2.7，AIOSQLITE 持久化）。
 
-将全部普通配置从 ``_conf_schema.json`` / ``AstrBotConfig`` 迁移到 KV 存储 + 内存缓存。
-特殊选择器（``chat_provider_id`` 等）仍由 ``AstrBotConfig`` 承载，不在 ConfigStore
-管理范围——``main.py`` 的 ``config_getter`` 会合并两源。
+将全部普通配置从 ``_conf_schema.json`` / ``AstrBotConfig`` 迁移到
+独立 SQLite 数据库 + 内存缓存。特殊选择器（``chat_provider_id`` 等）
+仍由 ``AstrBotConfig`` 承载，不在 ConfigStore 管理范围——
+``main.py`` 的 ``config_getter`` 会合并两源。
 
 设计要点：
 - **DEFAULT_CONFIG**：内置全量默认值（从 ``_conf_schema.json`` 迁移，禁止 null）。
 - **VALIDATORS**：类型/范围校验表（从 ``main.py`` ``_CONFIG_VALIDATORS`` 迁移）。
 - **LIST_KEYS**：list 类型键（校验时特判 ``isinstance(value, list)``）。
 - **内存缓存 ``_cache``**：``__init__`` 用 DEFAULT_CONFIG 填充，保证同步可读；
-  KV 无值时即以默认运行。
-- **load**：从 KV 读全量 JSON 覆盖默认，缺失键补默认（default 变更兼容）。
-- **set_many**：事务性批量写——逐键校验，全过才更新缓存 + 持久化 KV。
-- **KV 键设计**：单键 ``"config"`` 存整个配置 dict 的 JSON，减少 KV 调用、保证原子性。
+  SQLite 无值时即以默认运行。
+- **load**：从 SQLite 读全量 JSON 覆盖默认，缺失键补默认（default 变更兼容）。
+- **set_many**：事务性批量写——逐键校验，全过才更新缓存 + 持久化 SQLite。
+- **SQLite 设计**：单表 ``config``，单键 ``"main"`` 存整个配置 dict 的 JSON，
+  减少 IO、保证原子性。数据库文件位于插件 data 目录下 ``config.db``。
+- **连接管理**：懒连接（``_ensure_db``），``close()`` 关闭。
+
+为何弃 KV 转 SQLite：
+  AstrBot KV 存储在插件重载时可能被清空或不可用，导致配置丢失。
+  使用独立的 SQLite 数据库文件，配置持久化完全由插件自身掌控，
+  不受 AstrBot 框架重载机制影响。
 
 校验行为沿用 ``main.py`` ``set_config_view``：bool/int/float 严格 isinstance（int 可
 作为 float），不做字符串→数字转换（Web API 传 JSON，数值即数值）。
@@ -21,14 +29,16 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable
+from pathlib import Path
+
+import aiosqlite
 
 # 由 AstrBotConfig 原生承载的特殊选择器键（ConfigStore 不管理这些，主面板原生渲染）
 SPECIAL_KEYS = frozenset({"chat_provider_id", "embedding_provider_id"})
 
 
 class ConfigStore:
-    """配置存储：默认值 + KV 持久化覆盖 + 内存缓存。
+    """配置存储：默认值 + SQLite 持久化覆盖 + 内存缓存。
 
     普通参数经此管理；特殊选择器（``chat_provider_id``）走 AstrBotConfig 原生，
     二者由 ``main.py`` ``config_getter`` 合并后供 scheduler 读取。
@@ -218,34 +228,55 @@ class ConfigStore:
         }
     )
 
-    def __init__(self):
+    def __init__(self, db_path: Path):
         # 用 DEFAULT_CONFIG 浅拷贝填充缓存（默认值不可变项可直接共享；
         # list/dict 默认值被改时为外部写入，DEFAULT_CONFIG 本体不应被改）
         self._cache = dict(self.DEFAULT_CONFIG)
+        self._db_path = db_path
+        self._db: aiosqlite.Connection | None = None
 
-    async def load(self, kv_get_fn: Callable[[str], Awaitable]) -> None:
-        """从 KV 存储读取覆盖项，merge 进缓存。
+    async def _ensure_db(self) -> aiosqlite.Connection:
+        """确保数据库连接和表结构存在（懒初始化）。"""
+        if self._db is None:
+            # 确保父目录存在
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._db = await aiosqlite.connect(str(self._db_path))
+            await self._db.execute(
+                "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)"
+            )
+            await self._db.commit()
+        return self._db
 
-        KV 无值 / 异常 / 非法 JSON 时保持默认（缓存不变），保证插件可用。
+    async def load(self) -> None:
+        """从 SQLite 读取覆盖项，merge 进缓存。
+
+        数据库无值 / 异常 / 非法 JSON 时保持默认（缓存不变），保证插件可用。
         缺失键补默认（default 变更兼容：版本升级新增键时自动补齐）。
         """
         try:
-            raw = await kv_get_fn("config")
+            db = await self._ensure_db()
+            async with db.execute(
+                "SELECT value FROM config WHERE key = ?", ("main",)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return
+            raw = row[0]
+            if not raw:
+                return
+            try:
+                stored = json.loads(raw) if isinstance(raw, str) else raw
+            except (json.JSONDecodeError, TypeError):
+                return
+            if not isinstance(stored, dict):
+                return
+            # merge：SQLite 覆盖默认；缺失键保持默认（已在 _cache，default 变更兼容）
+            for k in self.DEFAULT_CONFIG:
+                if k in stored:
+                    self._cache[k] = stored[k]
         except Exception:
-            # KV 读取异常，保持默认，不抛
+            # SQLite 读取异常，保持默认，不抛
             return
-        if not raw:
-            return
-        try:
-            stored = json.loads(raw) if isinstance(raw, str) else raw
-        except (json.JSONDecodeError, TypeError):
-            return
-        if not isinstance(stored, dict):
-            return
-        # merge：KV 覆盖默认；缺失键保持默认（已在 _cache，default 变更兼容）
-        for k in self.DEFAULT_CONFIG:
-            if k in stored:
-                self._cache[k] = stored[k]
 
     def get(self) -> dict:
         """返回内存缓存引用（供 config_getter 合并用，直接返回引用即可）。
@@ -258,15 +289,11 @@ class ConfigStore:
         """返回缓存浅拷贝（供 Web API GET，避免外部修改污染缓存）。"""
         return dict(self._cache)
 
-    async def set_many(
-        self,
-        updates: dict,
-        kv_set_fn: Callable[[str, str], Awaitable],
-    ) -> tuple[bool, str]:
+    async def set_many(self, updates: dict) -> tuple[bool, str]:
         """批量校验 + 写入（事务性）。
 
-        全部校验通过才更新缓存并持久化 KV；任一失败立即返回 ``(False, 原因)``，
-        缓存与 KV 均不改。返回 ``(True, "")`` 表示成功。
+        全部校验通过才更新缓存并持久化 SQLite；任一失败立即返回 ``(False, 原因)``，
+        缓存与 SQLite 均不改。返回 ``(True, "")`` 表示成功。
         """
         if not isinstance(updates, dict):
             return False, "updates 必须是 JSON 对象"
@@ -282,14 +309,25 @@ class ConfigStore:
         # 2. 全部校验通过，更新缓存
         for k, v in updates.items():
             self._cache[k] = v
-        # 3. 持久化全量到 KV（单键 "config" 存整个 dict 的 JSON）
+        # 3. 持久化全量到 SQLite（单键 "main" 存整个 dict 的 JSON）
         try:
-            await kv_set_fn("config", json.dumps(self._cache, ensure_ascii=False))
+            db = await self._ensure_db()
+            await db.execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+                ("main", json.dumps(self._cache, ensure_ascii=False)),
+            )
+            await db.commit()
         except Exception as e:
-            # KV 写失败：缓存已改但未持久化，下次 load 会丢失本次缓存改动
+            # SQLite 写失败：缓存已改但未持久化，下次 load 会丢失本次缓存改动
             # 不回滚缓存（已生效的热更新仍有效），仅返回失败让上层感知
-            return False, f"KV 写入失败: {e}"
+            return False, f"SQLite 写入失败: {e}"
         return True, ""
+
+    async def close(self) -> None:
+        """关闭数据库连接（插件 terminate 时调用）。"""
+        if self._db is not None:
+            await self._db.close()
+            self._db = None
 
     def _validate(self, key: str, value) -> tuple[bool, str]:
         """校验单键，返回 ``(ok, msg)``。

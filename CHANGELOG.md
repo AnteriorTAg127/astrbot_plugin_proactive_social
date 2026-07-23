@@ -1,9 +1,25 @@
 # Changelog
 
+## [0.2.7] - 2026-07-23
+
+### Fixed
+- **配置持久化彻底修复**（F1）：ConfigStore 从 AstrBot KV 存储迁移到独立 SQLite 数据库（config.db），彻底解决插件重载后配置丢失的问题。KV 存储在插件重载时可能被清空或不可用，改用 aiosqlite 直接管理数据库文件后，配置持久化完全由插件自身掌控。
+
+### Changed
+- ConfigStore 构造函数从 `ConfigStore()` 改为 `ConfigStore(db_path: Path)`，需传入 SQLite 数据库文件路径
+- `ConfigStore.load()` 不再需要 `kv_get_fn` 回调参数
+- `ConfigStore.set_many(updates)` 不再需要 `kv_set_fn` 回调参数
+- 新增 `ConfigStore.close()` 方法，在插件 `terminate()` 中关闭数据库连接
+- `main.py` 的 `terminate()` 增加 `config_store.close()` 调用
+
+### Added
+- `aiosqlite` 加入 `requirements.txt`
+- 新增 `test_f1_config_survives_reload` 测试：模拟插件重载后配置不丢失
+
 ## [0.2.6] - 2026-07-23
 
 ### Fixed
-- **配置持久化**（F1）：ConfigStore.load() 移至 initialize() 中调用，解决插件重载后配置丢失问题
+- **配置持久化**（F1）：ConfigStore.load() 移至 initialize() 中调用（该方案未能根治重载丢配置问题，v0.2.7 改用 SQLite 彻底解决）
 - **Embedding 提供商设置**（F3）：embedding_provider_id 从 ConfigStore 迁移至 _conf_schema.json（AstrBot 原生 select_provider），解决保存后置空且无法修改的问题
 - **人设描述无法获取兴趣关键词**（F4）：set_config_view 检测 persona_text/persona_knowledge 变更时自动触发 interest_mgr.regenerate
 - **空批次摘要仍然求解**（F5）：scheduler.run_batch 对空 batch_text 提前返回，跳过后续嵌入和评分计算
