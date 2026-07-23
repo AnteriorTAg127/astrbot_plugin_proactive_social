@@ -4,6 +4,11 @@
 
 ## 功能
 
+- **主动回复走消息管线（v0.2.8）**：主动回复注入 AstrBot 标准消息管线（合成 AstrBotMessage → handle_msg），追踪页自动显示完整事件与 LLM 调用记录，对话历史自动保存；on_llm_request 钩子注入接话风格提示（不污染历史）；关闭或异常时降级回直连 LLM 旧路径
+- **自适应阈值控制器（v0.2.8）**：每群按近期触发率自动收敛阈值倍率（5%-30% 触发率带），消除 embedding 尺度差异导致的调参敏感；mult 钳制 [0.5, 2.0]，状态持久化
+- **每群发送频率硬上限（v0.2.8）**：max_proactive_per_hour / max_proactive_per_day 超限后 suppressed_reason="quota"，调参失误的最终兜底，任何参数调崩都不会话痨
+- **LLM 自动诊断调参（v0.2.8）**：`/prosocial tune` 指令 + Dashboard 按钮，分析最近 200 条决策数据生成参数建议（18 键白名单 + 校验器双重过滤后应用），无需手动试错
+- **兴趣生成数量配置生效（v0.2.8）**：persona_hash 纳入 example_count/keyword_count，改数量触发缓存失效与后台重建；重启不再回退
 - **兴趣关键词增删改查（v0.2.6）**：支持在 Dashboard 中添加/编辑/删除兴趣关键词和示例句子，自动重算向量质心
 - **可配置的示例句子和关键词数量（v0.2.6）**：interest_example_count / interest_keyword_count 控制生成数量
 - **决策记录 JSON 导出（v0.2.6）**：一键导出完整配置+决策+疲劳+兴趣数据，支持 AI 辅助调参
@@ -21,7 +26,7 @@
 - **多群轮询与作息调度**：时段±抖动、单群专注、群冷却、五态状态机
 - **群白名单 + 快捷开关**：whitelist/all 模式，AND 语义实时生效
 - **DRY_RUN + 决策日志环 + 每日指标**
-- **Dashboard 前端**：状态/决策记录/得分趋势/实时配置/群管理/兴趣管理/JSON 导出，11 个 Web API
+- **Dashboard 前端**：状态/决策记录/得分趋势/实时配置/群管理/兴趣管理/JSON 导出/LLM 调参，12 个 Web API
 - **历史回放**：JSONL 按时间流速喂入决策管线，强制不发送
 
 ## 安装
@@ -40,12 +45,14 @@
 | `/prosocial scores [n]` | ADMIN | 查看最近 n 条决策记录（含 score_a/score_b/α/channel） |
 | `/prosocial replay <file>` | ADMIN | 回放历史消息 JSONL |
 | `/prosocial fatigue` | ADMIN | 查看全局疲劳值/级别/阈值倍率/抑制状态（v0.2） |
+| `/prosocial tune [apply]` | ADMIN | LLM 诊断调参：分析最近 200 条决策生成参数建议；`apply` 应用缓存建议（v0.2.8） |
 
 ## 配置
 
 参考插件 WebUI 配置面板（`_conf_schema.json`）。主要配置项：
 
 - **基础**：人设、活跃时段、群模式、base_threshold、作息调度、示例句子数量、关键词数量
+- **管线与自适应（v0.2.8）**：reply_via_pipeline / adaptive_threshold_enabled / max_proactive_per_hour / max_proactive_per_day
 - **双通道融合（v0.2）**：enable_rule_channel / enable_vector_channel / fusion_weight_rule / dynamic_fusion_enabled
 - **规则引擎（v0.2）**：强唤醒词 / 上下文唤醒词 / 疑问信号 / 屏蔽短语
 - **疲劳（v0.2）**：衰减率 / 上限 / 各类型消耗成本 / 高中疲劳阈值修正 / 抑制开关

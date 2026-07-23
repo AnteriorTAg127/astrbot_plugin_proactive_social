@@ -114,6 +114,13 @@ def _deserialize_decision(raw: Any) -> BatchDecision | None:
             fatigue_level=str(raw.get("fatigue_level", "none")),
             fatigue_value=float(raw.get("fatigue_value", 0.0)),
             channel=str(raw.get("channel", "vector")),
+            # v0.2.5 回复关键词增量字段
+            keyword_match_score=float(raw.get("keyword_match_score", 0.0)),
+            keyword_added_score=float(raw.get("keyword_added_score", 0.0)),
+            # v0.2.6 Embedding 降级标记
+            embedding_degraded=bool(raw.get("embedding_degraded", False)),
+            # v0.2.8 自适应阈值倍率
+            adaptive_mult=float(raw.get("adaptive_mult", 1.0)),
         )
     except (TypeError, ValueError):
         return None

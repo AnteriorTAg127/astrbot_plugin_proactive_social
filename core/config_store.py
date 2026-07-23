@@ -146,6 +146,11 @@ class ConfigStore:
         "interest_example_count": 3,
         "interest_keyword_count": 12,
         "long_window_inject_proactive": True,
+        # --- v0.2.8 管线注入 / 自适应 / 频率上限 ---
+        "reply_via_pipeline": True,
+        "adaptive_threshold_enabled": True,
+        "max_proactive_per_hour": 5,
+        "max_proactive_per_day": 20,
     }
 
     # 类型/范围校验表：(类型, 下限, 上限)；None 表示不校验该侧。
@@ -216,6 +221,11 @@ class ConfigStore:
         "interest_example_count": (int, 1, 10),
         "interest_keyword_count": (int, 3, 30),
         "long_window_inject_proactive": (bool, None, None),
+        # v0.2.8 管线注入 / 自适应 / 频率上限
+        "reply_via_pipeline": (bool, None, None),
+        "adaptive_threshold_enabled": (bool, None, None),
+        "max_proactive_per_hour": (int, 0, 200),
+        "max_proactive_per_day": (int, 0, 500),
     }
 
     # list 类型键（校验时 isinstance list）；schedule 单独特判 dict 列表

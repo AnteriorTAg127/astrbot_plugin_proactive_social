@@ -60,13 +60,38 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.7")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.8")
 class ProSocialPlugin(Star):
     """主动社交插件入口（模块 G）。
 
     继承 ``Star``（含 ``PluginKVStoreMixin``，提供 ``get_kv_data`` / ``put_kv_data``）。
     唯一 import astrbot 的运行时文件，把 ``core/`` 模块与 AstrBot 框架对接。
     """
+
+    # v0.2.8 F3：LLM 诊断调参白名单——仅这些键允许经 llm_autotune 修改。
+    # 与 scheduler._tune_config_subset() 的可调键保持一致（剔除疲劳/作息等不应由 LLM 改的项）。
+    TUNE_WHITELIST = frozenset(
+        {
+            "base_threshold",
+            "w_int",
+            "w_topic",
+            "w_resp",
+            "w_cooldown",
+            "w_silence",
+            "core_interest_modifier",
+            "edge_interest_modifier",
+            "expecting_modifier",
+            "personal_threshold",
+            "cooldown_messages",
+            "fatigue_cost_active",
+            "fatigue_cost_passive",
+            "fatigue_limit",
+            "after_reply_probability",
+            "max_proactive_per_hour",
+            "max_proactive_per_day",
+            "adaptive_threshold_enabled",
+        }
+    )
 
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -92,6 +117,17 @@ class ProSocialPlugin(Star):
         # llm_fn / embed_fn 存为属性，供 persona reload 与 on_llm_request 钩子复用
         self._llm_fn = None
         self._embed_fn = None
+        # v0.2.8 F1：平台 bot self_id 缓存——on_group_message 收集，inject_fn 取用。
+        # key 为平台实例 id（event.get_platform_id() / umo 首段 / meta().id，三者一致），
+        # 不用 event.get_platform_name()（那是平台类型名 aiocqhttp，多实例场景会冲突）。
+        self._platform_self_ids: dict[str, str] = {}
+        # v0.2.8 F1：user_id -> nickname 缓存——on_group_message 收集，inject_fn 构造
+        # 合成消息时取用，让 Sender 显示为真实触发用户而非虚拟「群聊动态」。
+        self._user_nicknames: dict[str, str] = {}
+        # v0.2.8 F1：注入消息 message_id -> hint 映射，on_llm_request 消费后 pop。
+        self._pending_hints: dict[str, str] = {}
+        # v0.2.8 F3：最近一次 llm_autotune analyze 的建议 patch，供 /prosocial tune apply 复用。
+        self._last_tune_suggestion: dict | None = None
 
     # ------------------------------------------------------------------ #
     # 日志回调（注入 core 模块用）
@@ -135,6 +171,9 @@ class ProSocialPlugin(Star):
                 kv_set_fn=self._kv_set,
                 log_fn=self._log,
                 data_dir=self.data_dir,
+                # v0.2.8 F1：主动回复注入回调——构造 AstrBotMessage 走 platform_inst.handle_msg
+                # 标准管线（追踪+历史自动记录）。None 时所有主动回复走旧路径（行为不变）。
+                inject_fn=self._make_inject_fn(),
             )
 
             # 注册 Web API（7 个）
@@ -365,6 +404,102 @@ class ProSocialPlugin(Star):
 
         return send_fn
 
+    def _make_inject_fn(self):
+        """v0.2.8 F1：构造主动回复管线注入回调 ``inject_fn(umo, text, hint, group_id) -> bool``。
+
+        解析 umo → 定位平台实例 → 构造 ``AstrBotMessage``（type=GROUP_MESSAGE、
+        message_id=``prosocial:`` 前缀、sender 为虚拟用户）→ ``platform_inst.handle_msg(abm)``
+        进入 AstrBot 标准消息管线（waking_check → 插件 handler → LLM stage → trace + 历史自动记录）。
+
+        hint 暂存于 ``self._pending_hints``，``on_llm_request`` 钩子按 message_id 取出后注入
+        ``req.extra_user_content_parts``（``TextPart.mark_as_temp`` 不写入历史）。
+
+        降级：umo 非法 / 非 GroupMessage / 平台未找到 / self_id 未缓存 / handle_msg 异常 → False，
+        scheduler._dispatch_proactive 收到 False 后会回退旧路径（llm_fn + send_fn）。
+        """
+        import uuid
+
+        async def inject_fn(
+            umo: str, text: str, hint: str, group_id: str, sender_id: str = ""
+        ) -> bool:
+            try:
+                # 1. 解析 umo（platform_id:message_type:session_id）
+                parts = umo.split(":", 2)
+                if len(parts) != 3:
+                    return False
+                platform_id, mtype, session_id = parts
+                if mtype != "GroupMessage":
+                    return False
+
+                # 2. 定位平台实例（按 meta().id 匹配；umo 首段就是 platform_id）
+                platform_inst = None
+                try:
+                    for p in self.context.platform_manager.get_insts():
+                        try:
+                            if p.meta().id == platform_id:
+                                platform_inst = p
+                                break
+                        except Exception:
+                            continue
+                except Exception:
+                    return False
+                if platform_inst is None:
+                    return False
+
+                # 3. 取缓存的 self_id（on_group_message 中从真实事件收集）
+                self_id = self._platform_self_ids.get(platform_id)
+                if not self_id:
+                    self._log(
+                        "warning",
+                        f"尚无平台 {platform_id} 的 self_id 缓存，等待真实消息后重试",
+                    )
+                    return False
+
+                # 4. 构造 AstrBotMessage 并注入管线
+                # 延迟 import 避免插件加载阶段对 astrbot 内部路径的硬依赖
+                from astrbot.api.message_components import At, Plain
+                from astrbot.core.platform.astrbot_message import (
+                    AstrBotMessage,
+                    Group,
+                    MessageMember,
+                )
+                from astrbot.core.platform.message_type import MessageType
+
+                msg_id = f"prosocial:{uuid.uuid4().hex[:12]}"
+                # hint 暂存，on_llm_request 钩子按 msg_id 取出并注入 extra_user_content_parts
+                self._pending_hints[msg_id] = hint
+                # v0.2.8：Sender 用触发主动回复的真实用户 ID（scheduler 传入），
+                # nickname 从 on_group_message 缓存取；缺省回退虚拟「群聊动态」。
+                # 合成消息内容为普通群聊文本（非 / 指令），不会触发 admin 指令 handler，
+                # 且触发用户必为真实发言者（非 bot 自身），无权限升级/回声风险。
+                sender_uid = sender_id or "prosocial"
+                sender_nick = self._user_nicknames.get(sender_uid, "") or "群聊动态"
+                try:
+                    abm = AstrBotMessage()
+                    abm.type = MessageType.GROUP_MESSAGE
+                    abm.self_id = str(self_id)
+                    abm.session_id = session_id
+                    abm.message_id = msg_id
+                    abm.group = Group(group_id=str(group_id))
+                    abm.sender = MessageMember(user_id=sender_uid, nickname=sender_nick)
+                    abm.message = [At(qq=str(self_id)), Plain(text)]
+                    abm.message_str = text
+                    abm.raw_message = {}
+                    abm.timestamp = int(time.time())
+
+                    await platform_inst.handle_msg(abm)
+                    return True
+                except Exception as e:
+                    # 注入失败：清理 hint 缓存避免泄漏；scheduler 降级走旧路径
+                    self._pending_hints.pop(msg_id, None)
+                    self._log("warning", f"[prosocial] 管线注入失败: {e}")
+                    return False
+            except Exception as e:
+                self._log("warning", f"[prosocial] inject_fn 异常: {e}")
+                return False
+
+        return inject_fn
+
     # ------------------------------------------------------------------ #
     # 群消息 handler（快速路径）
     # ------------------------------------------------------------------ #
@@ -372,8 +507,24 @@ class ProSocialPlugin(Star):
     async def on_group_message(self, event: AstrMessageEvent):
         """群消息快速路径：提取字段 -> scheduler.on_message，不 yield、不做重活。"""
         try:
-            # 跳过 bot 自身消息（避免回声，PRD §2.3）
+            # v0.2.8 F1：合成消息自事件规避——prosocial: 前缀的 message_id 是 _make_inject_fn
+            # 注入管线产生的合成事件，内容已由原始真实事件记录过，此处直接 return 避免双缓冲/双决策。
+            msg_id = str(getattr(event.message_obj, "message_id", "") or "")
+            if msg_id.startswith("prosocial:"):
+                return
+
+            # v0.2.8 F1：缓存平台 bot self_id（inject_fn 构造 AstrBotMessage 时取用）。
+            # key 用 platform_id（= umo 首段 = meta().id），不用 platform_name（类型名，多实例冲突）。
+            platform_id = ""
+            try:
+                platform_id = event.get_platform_id() or ""
+            except Exception:
+                pass
             self_id = event.get_self_id()
+            if platform_id and self_id:
+                self._platform_self_ids[platform_id] = str(self_id)
+
+            # 跳过 bot 自身消息（避免回声，PRD §2.3）
             if self_id and event.get_sender_id() == self_id:
                 return
             if self.scheduler is None:
@@ -382,6 +533,9 @@ class ProSocialPlugin(Star):
             umo = event.unified_msg_origin or ""
             user_id = event.get_sender_id() or ""
             nickname = event.get_sender_name() or ""
+            # v0.2.8 F1：缓存 user_id -> nickname，inject_fn 构造合成消息 Sender 时取用
+            if user_id and nickname:
+                self._user_nicknames[user_id] = nickname
             text = event.message_str or ""
             ts = getattr(event.message_obj, "timestamp", None) or int(time.time())
             is_wake = bool(getattr(event, "is_at_or_wake_command", False))
@@ -403,15 +557,39 @@ class ProSocialPlugin(Star):
     # ------------------------------------------------------------------ #
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
-        """F8: 长窗口注入已迁移至 scheduler.run_batch，此钩子保留但不再注入。"""
-        return
+        """v0.2.8 F1：检测 prosocial: 前缀的注入消息，把 hint 注入 extra_user_content_parts。
+
+        非注入消息（普通被动 @）保持现状（无操作）——长窗口注入已迁移到 scheduler.run_batch。
+        """
+        try:
+            msg_id = str(getattr(event.message_obj, "message_id", "") or "")
+            hint = self._pending_hints.pop(msg_id, None)
+            if not hint:
+                return  # 非注入消息：保持现状
+            from astrbot.core.agent.message import TextPart
+
+            part = TextPart(text=f"[主动社交接话提示] {hint}")
+            try:
+                # v4.24.0+ 标记为临时内容，不写入对话历史；低版本无此方法则忽略
+                part.mark_as_temp()
+            except Exception:
+                pass
+            req.extra_user_content_parts.append(part)
+        except Exception as e:
+            self._log("warning", f"[prosocial] on_llm_request 注入 hint 失败: {e}")
 
     # ------------------------------------------------------------------ #
     # after_message_sent 钩子：感知己方发言
     # ------------------------------------------------------------------ #
     @filter.after_message_sent()
     async def after_message_sent(self, event: AstrMessageEvent):
-        """从 result.chain 提取 Plain 文本 -> scheduler.on_bot_sent（记录嵌入、转 EXPECTING_REPLY）。"""
+        """从 result.chain 提取 Plain 文本 -> scheduler.on_bot_sent（记录嵌入、转 EXPECTING_REPLY）。
+
+        v0.2.8 F1：按触发消息 message_id 前缀分类——``prosocial:`` 前缀为主动注入消息的回复，
+        走 ``reply_type="active"`` / ``is_proactive=True``（正确疲劳档位）；普通被动 @ 回复
+        保持 ``passive``。注入模式下 scheduler._dispatch_proactive 已计数 proactive_sends，
+        此处仅完成疲劳消耗/惯性/跟踪/瞥眼，不重复计数（on_bot_sent 内部防重）。
+        """
         try:
             if self.scheduler is None:
                 return
@@ -430,12 +608,15 @@ class ProSocialPlugin(Star):
             group_id = event.get_group_id() or ""
             if not group_id:
                 return
+            # v0.2.8 F1：prosocial: 前缀 → active 主动回复；否则 passive 被动回复
+            msg_id = str(getattr(event.message_obj, "message_id", "") or "")
+            is_prosocial = msg_id.startswith("prosocial:")
             await self.scheduler.on_bot_sent(
                 group_id=group_id,
                 text=text,
                 ts=time.time(),
-                reply_type="passive",
-                is_proactive=False,
+                reply_type="active" if is_prosocial else "passive",
+                is_proactive=is_prosocial,
             )
         except Exception as e:
             self._log("warning", f"after_message_sent 异常: {e}")
@@ -537,8 +718,17 @@ class ProSocialPlugin(Star):
                     cfg = self._config_getter()
                     persona_text = str(cfg.get("persona_text", ""))
                     persona_knowledge = str(cfg.get("persona_knowledge", ""))
+                    # v0.2.8 F4：从 cfg 读兴趣生成数量传入 regenerate（原漏传恒用默认 3/12，
+                    # 且 _compute_persona_hash 现已纳入数量，需用配置值才能命中新缓存）
+                    example_count = int(cfg.get("interest_example_count", 3))
+                    keyword_count = int(cfg.get("interest_keyword_count", 12))
                     await self.interest_mgr.regenerate(
-                        persona_text, persona_knowledge, self._llm_fn, self._embed_fn
+                        persona_text,
+                        persona_knowledge,
+                        self._llm_fn,
+                        self._embed_fn,
+                        example_count=example_count,
+                        keyword_count=keyword_count,
                     )
                     yield event.plain_result("兴趣语料已重新生成")
                 except Exception as e:
@@ -624,6 +814,60 @@ class ProSocialPlugin(Star):
             yield event.plain_result("\n".join(lines))
         except Exception as e:
             yield event.plain_result(f"fatigue 指令失败: {e}")
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @prosocial.command("tune")
+    async def cmd_tune(self, event: AstrMessageEvent, arg: str = ""):
+        """v0.2.8 F3：LLM 诊断调参。
+
+        ``/prosocial tune``                 分析（默认平衡风格）
+        ``/prosocial tune proactive``       分析（偏主动风格，目标 20%-30%）
+        ``/prosocial tune passive``         分析（偏被动风格，目标 5%-10%）
+        ``/prosocial tune balanced``        分析（平衡风格，目标 10%-20%）
+        ``/prosocial tune apply``           应用上次 analyze 缓存的建议 patch。
+        均需 ADMIN 权限。LLM 调用慢，直接 await 等待回复（指令同步阻塞可接受）。
+        补充指导文本请通过 Dashboard 调参面板填写（CLI 不便输入多行文本）。
+        """
+        try:
+            if self.scheduler is None:
+                yield event.plain_result("调度器未启动")
+                return
+            raw_arg = (arg or "").strip()
+            if raw_arg == "apply":
+                result = await self.llm_autotune("apply")
+                if result.get("ok"):
+                    yield event.plain_result(
+                        f"✅ 已应用 {result.get('updated', 0)} 项参数"
+                    )
+                else:
+                    yield event.plain_result(
+                        f"❌ 应用失败：{result.get('error', '未知')}"
+                    )
+                return
+            # 解析风格参数（proactive/passive/balanced），无效值回退 balanced
+            style = (
+                raw_arg
+                if raw_arg in ("proactive", "passive", "balanced")
+                else "balanced"
+            )
+            result = await self.llm_autotune("analyze", style=style)
+            if not result.get("ok"):
+                yield event.plain_result(f"❌ 分析失败：{result.get('error', '未知')}")
+                return
+            analysis = result.get("analysis", "") or ""
+            patch = result.get("suggested_patch", {}) or {}
+            expected = result.get("expected_effect", "") or ""
+            patch_str = (
+                "\n".join(f"  {k}: {v}" for k, v in patch.items())
+                if patch
+                else "  （无建议）"
+            )
+            yield event.plain_result(
+                f"📊 诊断结果\n\n分析：\n{analysis}\n\n建议参数：\n{patch_str}"
+                f"\n\n预期效果：{expected}\n\n应用建议：/prosocial tune apply"
+            )
+        except Exception as e:
+            yield event.plain_result(f"tune 指令失败: {e}")
 
     # ------------------------------------------------------------------ #
     # Web API 注册与 WebBridge 实现
@@ -712,8 +956,18 @@ class ProSocialPlugin(Star):
         ok, msg = await self._config_store.set_many(patch)
         if not ok:
             return False, msg
-        # F4: 人设变更触发兴趣重新生成（后台执行，不阻塞 API 响应）
-        if any(k in patch for k in ("persona_text", "persona_knowledge")):
+        # F4: 人设文本/知识或兴趣生成数量变更触发兴趣重新生成（后台执行，不阻塞 API 响应）。
+        # v0.2.8：interest_example_count/interest_keyword_count 也纳入触发条件
+        # （_compute_persona_hash 已把数量纳入哈希，改数量必须 regenerate 才能生效）。
+        if any(
+            k in patch
+            for k in (
+                "persona_text",
+                "persona_knowledge",
+                "interest_example_count",
+                "interest_keyword_count",
+            )
+        ):
             try:
                 new_cfg = self._config_getter()
                 persona_text = str(new_cfg.get("persona_text", ""))
@@ -913,9 +1167,246 @@ class ProSocialPlugin(Star):
                 self.scheduler._fatigue.snapshot(time.time()) if self.scheduler else {}
             ),
             "interests": self.get_interests_view(),
-            "version": "v0.2.7",
+            "version": "v0.2.8",
             "export_time": time.time(),
         }
+
+    # ------------------------------------------------------------------ #
+    # v0.2.8 F3：LLM 诊断调参（WebBridge 鸭子接口 + 内部分析/应用）
+    # ------------------------------------------------------------------ #
+
+    async def run_autotune(self, body: dict) -> dict:
+        """WebBridge 鸭子接口：``POST /prosocial/autotune`` 入口。
+
+        body.action: ``"analyze"`` 分析最近决策数据生成建议；``"apply"`` 应用建议 patch
+                    （body.patch 可选，缺省用 ``self._last_tune_suggestion`` 缓存）。
+        返回扁平 dict（透传给前端）：``{ok, analysis?, suggested_patch?,
+        expected_effect?, applied, updated?, error?}``。
+        """
+        if not isinstance(body, dict):
+            return {"ok": False, "error": "body 必须是 JSON 对象"}
+        action = body.get("action")
+        if action not in ("analyze", "apply"):
+            return {"ok": False, "error": "action 必须是 analyze 或 apply"}
+        patch = body.get("patch") if action == "apply" else None
+        style = str(body.get("style", "")) if action == "analyze" else ""
+        guidance = str(body.get("guidance", "")) if action == "analyze" else ""
+        return await self.llm_autotune(action, patch, style=style, guidance=guidance)
+
+    async def llm_autotune(
+        self,
+        action: str,
+        patch: dict | None = None,
+        *,
+        style: str = "",
+        guidance: str = "",
+    ) -> dict:
+        """v0.2.8 F3：LLM 诊断调参核心。
+
+        - ``action="analyze"``：``scheduler.collect_tune_stats()`` → 构造分析 prompt →
+          ``self._llm_fn`` → 解析 JSON（容错 fence）→ 白名单过滤 suggested_patch →
+          缓存到 ``self._last_tune_suggestion`` → 返回 ``{ok, analysis, suggested_patch,
+          expected_effect, applied: False}``。
+        - ``action="apply"``：patch 来自参数或缓存 → 白名单过滤 →
+          ``ConfigStore.set_many``（内置类型/范围校验）→ 返回 ``{ok, applied, updated, error?}``。
+        - ``style``：用户回复风格偏好（``"proactive"`` / ``"balanced"`` / ``"passive"``），
+          注入预设提示词引导 LLM 调参方向。
+        - ``guidance``：用户自定义补充指导文本，原样追加到提示词末尾。
+        - scheduler 未就绪 / llm_fn 未就绪 → ``{ok: False, error: ...}``。
+        """
+        if self.scheduler is None or self._llm_fn is None:
+            return {"ok": False, "error": "scheduler 或 llm_fn 未就绪"}
+
+        if action == "analyze":
+            stats = self.scheduler.collect_tune_stats()
+            prompt = self._build_tune_prompt(stats, style=style, guidance=guidance)
+            try:
+                raw = await self._llm_fn(prompt)
+            except Exception as e:
+                return {"ok": False, "error": f"LLM 调用失败: {e}"}
+            parsed = self._parse_tune_response(raw)
+            if not parsed:
+                return {"ok": False, "error": "LLM 输出解析失败（非 JSON）"}
+            suggested = parsed.get("suggested_patch", {}) or {}
+            # 白名单过滤：仅保留 TUNE_WHITELIST 内的键，其余丢弃并在 analysis 末尾注明
+            filtered = {k: v for k, v in suggested.items() if k in self.TUNE_WHITELIST}
+            dropped = [k for k in suggested if k not in self.TUNE_WHITELIST]
+            analysis = str(parsed.get("analysis", "") or "")
+            if dropped:
+                analysis += f"\n\n[已过滤非白名单键: {', '.join(dropped)}]"
+            result = {
+                "ok": True,
+                "analysis": analysis,
+                "suggested_patch": filtered,
+                "expected_effect": str(parsed.get("expected_effect", "") or ""),
+                "applied": False,
+            }
+            self._last_tune_suggestion = filtered
+            return result
+
+        if action == "apply":
+            target = patch or (self._last_tune_suggestion or {})
+            if not target:
+                return {"ok": False, "error": "无可应用的 patch（无参数且无缓存建议）"}
+            filtered = {k: v for k, v in target.items() if k in self.TUNE_WHITELIST}
+            if not filtered:
+                return {"ok": False, "error": "过滤白名单后无可应用键"}
+            ok, msg = await self._config_store.set_many(filtered)
+            if ok:
+                # 应用成功后清空缓存，避免重复 apply
+                self._last_tune_suggestion = None
+            return {
+                "ok": ok,
+                "applied": ok,
+                "updated": len(filtered) if ok else 0,
+                "error": msg if not ok else None,
+            }
+
+        return {"ok": False, "error": f"未知 action: {action}"}
+
+    # v0.2.8 F3：回复风格偏好 → LLM 调参方向引导
+    _STYLE_GUIDANCE = {
+        "proactive": (
+            "偏主动——用户希望机器人更活跃、更频繁地插话参与群聊。\n"
+            "调参方向：适当降低 base_threshold / personal_threshold，"
+            "提高 w_int / w_topic 等感知权重，放宽 fatigue_limit，"
+            "目标触发率偏向 20%-30% 区间。但不可导致话痨（仍受 max_proactive_per_hour/day 兜底）。"
+        ),
+        "balanced": (
+            "平衡——用户希望机器人自然参与，不话痨也不沉默。\n"
+            "调参方向：维持当前阈值结构，仅微调失衡因子，"
+            "目标触发率 10%-20% 区间。"
+        ),
+        "passive": (
+            "偏被动——用户希望机器人克制，只在高度相关或被@时才插话。\n"
+            "调参方向：适当提高 base_threshold / personal_threshold，"
+            "降低 w_silence（减少纯沉默触发），收紧 fatigue_limit，"
+            "目标触发率 5%-10% 区间。"
+        ),
+    }
+
+    def _build_tune_prompt(
+        self, stats: dict, *, style: str = "", guidance: str = ""
+    ) -> str:
+        """构造 LLM 调参分析 prompt。
+
+        包含：插件工作原理详解 + 18 参数说明 + 近期决策统计 + 当前参数值 +
+        用户回复风格偏好 + 用户自定义指导 + 输出格式要求。
+        """
+        current_cfg = self._tune_current_config()
+        whitelist = sorted(self.TUNE_WHITELIST)
+        style_key = style if style in self._STYLE_GUIDANCE else "balanced"
+        style_text = self._STYLE_GUIDANCE[style_key]
+        user_guidance = guidance.strip() if guidance else "（用户未提供补充说明）"
+        return (
+            "# 角色与任务\n"
+            "你是「主动社交插件」的调参专家。请根据近期决策数据统计、当前参数值"
+            "和用户偏好，给出参数调整建议。\n\n"
+            "# 插件工作原理\n\n"
+            "这是一个群聊主动社交插件。机器人监听群消息，通过双通道融合评分"
+            "决定是否主动插话：\n\n"
+            "## 评分管线\n\n"
+            "1. **向量通道（embedding）**：计算近期消息与兴趣关键词的余弦相似度\n"
+            "   - s_int：兴趣相关度（消息 vs 兴趣向量质心）\n"
+            "   - s_topic：话题连续度（消息 vs 上下文摘要）\n"
+            "   - s_resp：回应匹配度（消息是否像在@机器人或接话）\n\n"
+            "2. **规则通道（rule）**：基于规则的启发式因子\n"
+            "   - c_cooldown：冷却因子（距上次发言的条数，越远越可能触发）\n"
+            "   - p_silence：沉默时长因子（群内安静越久越可能触发）\n\n"
+            "3. **融合公式**：\n"
+            "   final_score = w_int×s_int + w_topic×s_topic + w_resp×s_resp +\n"
+            "                 w_cooldown×c_cooldown + w_silence×p_silence + modifiers\n"
+            "   modifiers = core_interest_modifier（核心兴趣加成）+\n"
+            "               edge_interest_modifier（边缘兴趣加成）+\n"
+            "               expecting_modifier（被@/接话加成）\n\n"
+            "4. **阈值与触发**：\n"
+            "   effective_threshold = base_threshold × fatigue_mult × inertia_mult × adaptive_mult\n"
+            "   final_score >= effective_threshold → 触发主动回复\n\n"
+            "## 反馈机制\n\n"
+            "5. **疲劳控制**：每次主动发送消耗疲劳值，疲劳越高 threshold 越高（越难触发）\n"
+            "   - fatigue_cost_active：主动回复消耗\n"
+            "   - fatigue_cost_passive：被动回复消耗\n"
+            "   - fatigue_limit：疲劳上限（到顶后几乎不触发）\n\n"
+            "6. **个人跟踪**：对特定用户的关键词触发单独判定（personal_threshold）\n\n"
+            "7. **频率兜底**：max_proactive_per_hour / max_proactive_per_day 超限后\n"
+            '   suppressed_reason="quota"（调参失误的最终防线）\n\n'
+            "8. **自适应阈值**：adaptive_threshold_enabled=true 时，按近期触发率\n"
+            "   自动调整 multiplier——触发率>30% 则 mult×1.1 收紧，<5% 则 mult×0.9 放宽，\n"
+            "   mult 钳制 [0.5, 2.0]。5%-30% 为健康触发率区间。\n\n"
+            "# 可调参数说明（白名单 18 项）\n\n"
+            "| 参数 | 类型 | 说明 |\n"
+            "|------|------|------|\n"
+            "| base_threshold | float | 基础阈值（0.0-1.0），越高越保守 |\n"
+            "| w_int | float | 兴趣相关度权重（0.0-3.0） |\n"
+            "| w_topic | float | 话题连续度权重（0.0-3.0） |\n"
+            "| w_resp | float | 回应匹配度权重（0.0-3.0） |\n"
+            "| w_cooldown | float | 冷却因子权重（0.0-3.0） |\n"
+            "| w_silence | float | 沉默时长权重（0.0-3.0） |\n"
+            "| core_interest_modifier | float | 核心兴趣加成（0.0-1.0） |\n"
+            "| edge_interest_modifier | float | 边缘兴趣加成（0.0-1.0） |\n"
+            "| expecting_modifier | float | 被@/接话加成（0.0-1.0） |\n"
+            "| personal_threshold | float | 个人跟踪阈值（0.0-1.0） |\n"
+            "| cooldown_messages | int | 冷却条数（1-50，距上次发多少条消息后可再触发） |\n"
+            "| fatigue_cost_active | float | 主动回复疲劳消耗（0.0-2.0） |\n"
+            "| fatigue_cost_passive | float | 被动回复疲劳消耗（0.0-2.0） |\n"
+            "| fatigue_limit | float | 疲劳上限（1.0-20.0） |\n"
+            "| after_reply_probability | float | 回复后开等待窗口概率（0.0-1.0） |\n"
+            "| max_proactive_per_hour | int | 每群每小时发送上限（0=不限） |\n"
+            "| max_proactive_per_day | int | 每群每日发送上限（0=不限） |\n"
+            "| adaptive_threshold_enabled | bool | 自适应阈值开关 |\n\n"
+            "# 用户偏好\n\n"
+            f"**回复风格**：{style_text}\n\n"
+            f"**用户补充说明**：\n{user_guidance}\n\n"
+            "# 近期决策数据统计（最近 200 条）\n\n"
+            f"{json.dumps(stats, ensure_ascii=False, indent=2)}\n\n"
+            "# 当前参数值\n\n"
+            f"{json.dumps(current_cfg, ensure_ascii=False, indent=2)}\n\n"
+            "# 分析要求\n\n"
+            "请按以下维度逐一分析，给出具体调整建议：\n\n"
+            "1. **触发率**：当前 triggered_rate 是否在健康区间？与用户风格偏好的目标区间对比。\n"
+            "   偏高→收紧阈值/降权重；偏低→放宽。注意区分 below_threshold 和 quota 抑制。\n\n"
+            "2. **得分分布**：score_mean vs threshold_mean 的差距是否合理？\n"
+            "   差距过大（分数远低于阈值）→ 阈值偏高或权重不足；\n"
+            "   差距过小（分数接近阈值）→ 触发过于敏感，波动大。\n\n"
+            "3. **五因子均衡**：factors_mean 中 s_int/s_topic/s_resp/c_cooldown/p_silence\n"
+            "   是否有某因子主导？主导因子意味着该通道权重失衡，应调低对应 w_* 或调高其他。\n\n"
+            "4. **抑制分布**：suppressed_hist 中 quota 占比高→频率上限过低或阈值过低导致\n"
+            "   频繁触发后被配额拦截；below_threshold 占比高→阈值过高。\n\n"
+            "5. **疲劳状态**：fatigue_value_mean 是否接近 fatigue_limit？\n"
+            "   接近→疲劳消耗过快或恢复太慢，机器人会逐渐沉默。\n\n"
+            "6. **风格对齐**：建议方向必须与用户回复风格偏好一致。\n\n"
+            "# 输出格式\n\n"
+            "仅输出 JSON（不要 ```json 标记），格式：\n"
+            '{"analysis": "详细分析（中文，逐维度点评，引用具体数值）", '
+            '"suggested_patch": {"参数名": 建议值, ...}, '
+            '"expected_effect": "应用后预期效果描述（触发率变化、风格变化等）"}\n\n'
+            f"注意：suggested_patch 仅可包含白名单内参数：{whitelist}"
+        )
+
+    def _tune_current_config(self) -> dict:
+        """返回当前白名单内的配置值（供 LLM 诊断时对照当前参数）。"""
+        cfg = self._config_getter()
+        return {k: cfg.get(k) for k in self.TUNE_WHITELIST if k in cfg}
+
+    @staticmethod
+    def _parse_tune_response(raw: str) -> dict | None:
+        """解析 LLM 返回的 JSON（容错 ```json ... ``` fence 与首尾空白）。"""
+        if not raw:
+            return None
+        text = raw.strip()
+        # 剥 ```json ... ``` / ``` ... ``` fence
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        try:
+            data = json.loads(text)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------ #
     # 指令输出格式化

@@ -47,6 +47,8 @@ class _MockBridge:
         }
         self.interests_patch_result: tuple[bool, str] = (True, "")
         self.last_interests_patch: dict | None = None
+        # F3 LLM 诊断调参
+        self.last_autotune_body: dict | None = None
 
     def get_status(self) -> dict:
         return self.status_data
@@ -83,6 +85,23 @@ class _MockBridge:
             "config": self.config_data,
             "decisions": self.decisions_data,
             "version": "v0.2.6",
+        }
+
+    async def run_autotune(self, body: dict) -> dict:
+        # F3：LLM 诊断调参 mock —— 固定返回 analyze 成功结果
+        self.last_autotune_body = body
+        if body.get("action") == "apply":
+            return {
+                "ok": True,
+                "applied": True,
+                "updated": len(body.get("patch") or {}),
+            }
+        return {
+            "ok": True,
+            "analysis": "test analysis",
+            "suggested_patch": {},
+            "expected_effect": "test effect",
+            "applied": False,
         }
 
 
@@ -350,12 +369,75 @@ def test_web_post_groups_none_body_rejected():
 
 
 # ---------------------------------------------------------------------- #
-# 全部 11 handler 存在
+# POST /prosocial/autotune（F3 LLM 诊断调参）
 # ---------------------------------------------------------------------- #
 
 
-def test_web_build_handlers_returns_eleven():
-    """build_handlers 返回恰好 11 个 handler（v0.2.6 新增 export GET）。"""
+def test_web_post_autotune_analyze_ok():
+    """analyze 成功 → 200 + 扁平响应体（ok/analysis/suggested_patch/expected_effect 顶层字段）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(h, body={"action": "analyze"})
+    assert status == 200
+    assert body["ok"] is True
+    assert body["analysis"] == "test analysis"
+    assert body["suggested_patch"] == {}
+    assert body["expected_effect"] == "test effect"
+    assert body["applied"] is False
+    assert bridge.last_autotune_body == {"action": "analyze"}
+
+
+def test_web_post_autotune_apply_ok():
+    """apply 成功 → 200 + {ok, applied, updated}。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(h, body={"action": "apply", "patch": {"base_threshold": 0.7}})
+    assert status == 200
+    assert body["ok"] is True
+    assert body["applied"] is True
+    assert body["updated"] == 1
+
+
+def test_web_post_autotune_none_body_rejected():
+    """body=None → 400（与 post_config/post_groups 行为一致）。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(h, body=None)
+    assert status == 400
+    assert body["ok"] is False
+
+
+def test_web_post_autotune_non_dict_body_rejected():
+    """非 dict body（如字符串）→ 400。"""
+    bridge = _MockBridge()
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(h, body="not a dict")
+    assert status == 400
+    assert body["ok"] is False
+
+
+def test_web_post_autotune_bridge_exception_500():
+    """bridge.run_autotune 抛异常 → 500 + ok=false。"""
+    bridge = _MockBridge()
+
+    async def raise_fn(body):
+        raise RuntimeError("autotune boom")
+
+    bridge.run_autotune = raise_fn
+    h = build_handlers(bridge)["POST /prosocial/autotune"]
+    status, body = _run(h, body={"action": "analyze"})
+    assert status == 500
+    assert body["ok"] is False
+    assert "autotune boom" in body["error"]
+
+
+# ---------------------------------------------------------------------- #
+# 全部 12 handler 存在
+# ---------------------------------------------------------------------- #
+
+
+def test_web_build_handlers_returns_twelve():
+    """build_handlers 返回恰好 12 个 handler（v0.2.8 新增 autotune POST）。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     expected = {
@@ -370,13 +452,14 @@ def test_web_build_handlers_returns_eleven():
         "GET /prosocial/interests",
         "POST /prosocial/interests",
         "GET /prosocial/export",
+        "POST /prosocial/autotune",
     }
     assert set(handlers.keys()) == expected
-    assert len(handlers) == 11
+    assert len(handlers) == 12
 
 
 def test_web_all_handlers_async_callable():
-    """11 个 handler 都是 async 可调用。"""
+    """12 个 handler 都是 async 可调用。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     for key, h in handlers.items():

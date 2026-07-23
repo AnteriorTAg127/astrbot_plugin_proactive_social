@@ -355,6 +355,11 @@ def default_config() -> dict:
         "interest_example_count": 3,
         "interest_keyword_count": 12,
         "long_window_inject_proactive": True,
+        # v0.2.8 管线注入 / 自适应 / 频率上限
+        "reply_via_pipeline": True,
+        "adaptive_threshold_enabled": True,
+        "max_proactive_per_hour": 5,
+        "max_proactive_per_day": 20,
     }
 
 

@@ -76,14 +76,27 @@ _LEVEL_ORDER: tuple[InterestLevel, ...] = (
 )
 
 
-def _compute_persona_hash(persona_text: str, persona_knowledge: str) -> str:
-    """计算人设文本哈希（sha256 前 16 位）。
+def _compute_persona_hash(
+    persona_text: str,
+    persona_knowledge: str,
+    example_count: int = 3,
+    keyword_count: int = 12,
+) -> str:
+    """计算人设+数量的稳定哈希（sha256 前 16 位）。
 
+    v0.2.8：example_count/keyword_count 纳入哈希输入，避免改数量后命中旧缓存。
+
+    将 persona_text / persona_knowledge / example_count / keyword_count
+    一并纳入哈希输入：任一变更都会让内存缓存与 npz 磁盘缓存失效。
+    兼容默认参数（example_count=3 / keyword_count=12），旧调用点不受影响。
     persona_text 与 persona_knowledge 用 ``\\n|||\\n`` 分隔，确保两段文本
     边界明确（避免拼接歧义导致 hash 碰撞）。
     """
-    raw = (persona_text + "\n|||\n" + persona_knowledge).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()[:16]
+    payload = (
+        f"{persona_text}\n|||\n{persona_knowledge}\n|||\n"
+        f"{int(example_count)}\n|||\n{int(keyword_count)}"
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _strip_json_fence(text: str) -> str:
@@ -210,7 +223,9 @@ class InterestManager:
         - 任何加载异常 -> log warning 并 fallback 到 regenerate
         """
         effective_persona = self._effective_persona(persona_text)
-        persona_hash = _compute_persona_hash(effective_persona, persona_knowledge)
+        persona_hash = _compute_persona_hash(
+            effective_persona, persona_knowledge, example_count, keyword_count
+        )
 
         # 内存命中
         if self._data is not None and self._data.persona_hash == persona_hash:
@@ -266,7 +281,9 @@ class InterestManager:
           5. 构造 InterestData 并持久化
         """
         effective_persona = self._effective_persona(persona_text)
-        persona_hash = _compute_persona_hash(effective_persona, persona_knowledge)
+        persona_hash = _compute_persona_hash(
+            effective_persona, persona_knowledge, example_count, keyword_count
+        )
 
         # 1. LLM 生成兴趣语料（带 1 次重试 + 兜底）
         payload = await self._gen_payload_with_retry(

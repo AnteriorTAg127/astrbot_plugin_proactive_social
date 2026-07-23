@@ -6,7 +6,7 @@
   set_config_view / get_groups_view / set_groups_view / get_providers_view /
   get_interests_view / set_interests_view），并负责通过
   `context.register_web_api` 注册路由、把本模块返回的 `(status, json)` 封装为 HTTP 响应。
-- `build_handlers(bridge)` 返回 10 个 async handler，签名统一为
+- `build_handlers(bridge)` 返回 12 个 async handler，签名统一为
   `async (params: dict, body: dict | None) -> tuple[int, dict]`。
 - 统一响应格式：成功 `(200, {"ok": True, "data": ...})`；
   失败 `(400, {"ok": False, "error": "..."})`；内部异常 `(500, {"ok": False, "error": "..."})`。
@@ -69,6 +69,16 @@ class WebBridge:
     def get_export_view(self) -> dict:  # pragma: no cover
         ...
 
+    async def run_autotune(self, body: dict) -> dict:  # pragma: no cover
+        """LLM 诊断调参（F3）。
+
+        body.action: "analyze" 分析最近决策数据生成建议；
+                     "apply"   应用建议 patch（body.patch 可选，缺省用缓存建议）。
+        返回 {ok, analysis?, suggested_patch?, expected_effect?, applied, updated?, error?}。
+        ok=False（如 LLM 解析失败、白名单校验失败）时仍由本方法返回，web 层透传给前端。
+        """
+        ...
+
 
 def _ok(data: Any) -> tuple[int, dict]:
     """成功响应：200 + {"ok": True, "data": ...}"""
@@ -81,7 +91,7 @@ def _err(msg: str, status: int = 400) -> tuple[int, dict]:
 
 
 def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
-    """构造 10 个 Web API handler，key 形如 'GET /prosocial/status'。
+    """构造 12 个 Web API handler，key 形如 'GET /prosocial/status'。
 
     main.py 遍历此 dict，按 METHOD/PATH 注册到 `context.register_web_api`，
     并在自身 handler 中解析 query/body 调用对应函数，把返回的 (status, json) 转为响应。
@@ -203,6 +213,25 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         except Exception as e:
             return _err(str(e), 500)
 
+    async def post_autotune(params: dict, body: dict | None) -> tuple[int, dict]:
+        try:
+            # 显式拒绝 None / 非 dict body（与 post_config/post_groups 行为一致）
+            if body is None:
+                return _err("请求体不能为空")
+            if not isinstance(body, dict):
+                return _err("请求体必须是 JSON 对象")
+            # run_autotune 返回扁平 dict {ok, analysis?, suggested_patch?,
+            # expected_effect?, applied, updated?, error?}，透传为响应体顶层字段
+            # （前端 bridge.apiPost resolve 后直接读 resp.analysis 等，非 _ok 包装）。
+            # ok=False（LLM 解析失败等业务错误）仍用 200，便于前端在 resolve 路径检查 .ok；
+            # 协议错误（非 dict body）与异常走 400/500，bridge reject 由前端 catch 处理。
+            result = await bridge.run_autotune(body)
+            if not isinstance(result, dict):
+                return _err("run_autotune 返回类型异常", 500)
+            return 200, result
+        except Exception as e:
+            return _err(str(e), 500)
+
     return {
         "GET /prosocial/status": get_status,
         "GET /prosocial/decisions": get_decisions,
@@ -215,4 +244,5 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         "GET /prosocial/interests": get_interests,
         "POST /prosocial/interests": post_interests,
         "GET /prosocial/export": get_export,
+        "POST /prosocial/autotune": post_autotune,
     }

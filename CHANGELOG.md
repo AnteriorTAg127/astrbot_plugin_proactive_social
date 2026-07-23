@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.2.8] - 2026-07-23
+
+### Fixed
+- **主动回复在追踪页无内容**（F1）：主动回复改为注入 AstrBot 标准消息管线（`platform_inst.handle_msg(abm)`），合成 `AstrBotMessage` 携带 `prosocial:` 前缀 message_id 与虚拟发送者，触发 waking_check → LLM stage → trace 自动记录 → 对话历史自动保存。`on_llm_request` 钩子检测前缀并通过 `extra_user_content_parts` + `mark_as_temp()` 注入接话风格提示（不污染历史）。注入失败/未配置时降级回直连 LLM 旧路径。彻底解决 Dashboard 追踪页看不到主动回复内容的问题。
+- **兴趣关键词/句子个数配置无效**（F4）：`_compute_persona_hash` 把 `example_count` / `keyword_count` 纳入哈希输入（4 段 payload），数量变更使内存缓存与 interests.npz 磁盘缓存同时失效；`set_config_view` 在 patch 含 `interest_example_count` / `interest_keyword_count` 时触发后台重建；`/prosocial persona reload` 从 cfg 读数量传入 regenerate。修改数量后重启不再命中旧缓存。
+
+### Added
+- **自适应阈值控制器**（F2a，`core/adaptive.py` `AdaptiveThreshold`）：每群一个实例，滚动窗口记录最近 100 次批次决策，每 20 样本评估触发率——rate > 30% 则 `mult *= 1.1`（收紧），rate < 5% 则 `mult *= 0.9`（放宽），mult 钳制 [0.5, 2.0]。无论 embedding 模型余弦尺度如何，控制器把实际触发率收敛到 5%-30% 自然区间，消除调参敏感。状态经 KV 持久化（`adaptive_state`），`BatchDecision` 新增 `adaptive_mult` 字段。
+- **每群发送频率硬上限**（F2b，`core/adaptive.py` `SendQuota`）：滑动窗口记录发送时间戳，`max_proactive_per_hour`（默认 5）/ `max_proactive_per_day`（默认 20）超限后 `suppressed_reason="quota"`，省 LLM 开销。调参失误的最终兜底，任何参数调崩都不会导致话痨。
+- **LLM 自动诊断调参**（F3）：`/prosocial tune` 指令（ADMIN）+ `POST /prosocial/autotune` API + Dashboard「🤖 LLM 诊断调参」按钮，分析最近 200 条决策数据（触发率/score 分布/五因子均值/疲劳/suppressed 直方图）+ 当前参数子集 → LLM 生成 {analysis, suggested_patch, expected_effect} → 18 键白名单 + ConfigStore 校验器双重过滤 → apply 应用建议。前端弹窗显示分析结果与建议参数表，二次确认后应用。
+- **collect_tune_stats()**：scheduler 新方法，汇总最近 200 条决策的统计信息供 LLM 诊断。
+- 4 项新配置项（全部非 null 默认）：`reply_via_pipeline` / `adaptive_threshold_enabled` / `max_proactive_per_hour` / `max_proactive_per_day`
+- 32 项 v0.2.8 单元测试（AdaptiveThreshold 10 / SendQuota 5 / models+metrics 2 / config_store 4 / interest hash 3 / scheduler 集成 8）
+
+### Changed
+- scheduler 三个主动发送路径（`run_batch` / `_send_wait_window_reply` / `glance_once`）统一改走新方法 `_dispatch_proactive`，按 `reply_via_pipeline` + `inject_fn` 是否就绪选择注入路径或旧路径降级
+- `run_batch` 融合判定改用 `eff_threshold = fusion.threshold * adaptive.multiplier()`（自适应开关关闭时 multiplier=1.0 等价旧行为）
+- `after_message_sent` 钩子按触发消息 message_id 前缀分类：`prosocial:` → `reply_type="active"` + `is_proactive=True`；否则保持 `passive`
+- `on_group_message` 检测 `prosocial:` 前缀 message_id 直接 return（避免合成消息双缓冲/双决策），并在跳过自身消息前缓存 `event.get_platform_id()` → `event.get_self_id()` 供 inject_fn 构造合成消息
+- Dashboard 概览面板新增「🤖 LLM 诊断调参」按钮与通用 modal 弹窗；配置面板基础设置组新增 4 项控件；版本号 v0.2.6 → v0.2.8
+- Web API handler 总数 11 → 12（新增 `POST /prosocial/autotune`）
+- 插件版本 v0.2.7 → v0.2.8
+
+### Notes
+- 注入仅支持群聊（umo 类型 GroupMessage）；私聊/平台未找到/self_id 未缓存 → 旧路径降级
+- 合成消息 sender 为虚拟用户「群聊动态」，非真实发言者；对话历史中显示为此昵称
+- LLM 调参建议经白名单 + 校验器双重过滤，不会写入非法/危险键
+- 兴趣 interests.npz 因 persona_hash 算法变更，首次启动 v0.2.8 时自动重建（一次性）
+
 ## [0.2.7] - 2026-07-23
 
 ### Fixed

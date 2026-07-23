@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import statistics
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -28,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .adaptive import AdaptiveThreshold, SendQuota
 from .buffer import GroupBuffer
 from .context import GroupContext
 from .engine import WakeEngine
@@ -79,6 +81,9 @@ class SocialScheduler:
         kv_set_fn: Callable[[str, Any], Awaitable[None]],
         log_fn: Callable[[str, str], None],
         data_dir: Path,
+        # v0.2.8 主动回复管线注入回调：(umo, text, hint, group_id) -> bool
+        # None 时所有主动回复走旧路径（llm_fn + send_fn），既有行为不变
+        inject_fn: Callable[[str, str, str, str], Awaitable[bool]] | None = None,
     ):
         # 注入回调
         self._config_getter = config_getter
@@ -91,6 +96,10 @@ class SocialScheduler:
         self._kv_set = kv_set_fn
         self._log = log_fn
         self._data_dir = data_dir
+        # v0.2.8 管线注入回调；None → 走旧路径（直连 llm_fn + send_fn）
+        self._inject = inject_fn
+        # v0.2.8 自适应阈值状态缓存：start() 从 KV 加载，_get_group 创建群时恢复
+        self._adaptive_state_cache: dict | None = None
 
         # 每群运行时状态：{group_id -> dict}
         self._groups: dict[str, dict] = {}
@@ -165,7 +174,18 @@ class SocialScheduler:
             "wait_window": None,
             # v0.2.5 回复关键词缓存（按目标用户+TTL，bot 回复后提取，run_batch 中匹配加分）
             "reply_keyword_cache": None,
+            # v0.2.8 自适应阈值控制器 + 每群发送频率硬上限
+            "adaptive": AdaptiveThreshold(),
+            "quota": SendQuota(),
         }
+        # v0.2.8 从缓存恢复自适应阈值状态（start() 预加载的 KV 数据）
+        if self._adaptive_state_cache is not None:
+            try:
+                saved = self._adaptive_state_cache.get(group_id)
+                if isinstance(saved, dict):
+                    g["adaptive"].restore(saved)
+            except Exception:
+                pass
         self._groups[group_id] = g
         return g
 
@@ -209,6 +229,20 @@ class SocialScheduler:
                 )
         except Exception as e:
             self._log("warning", f"[ProSocial] scheduler.start: 加载 fatigue 失败: {e}")
+
+        # v0.2.8 预加载自适应阈值状态缓存（_get_group 创建群时恢复）
+        try:
+            adaptive_state = await self._kv_get("adaptive_state", {})
+            if isinstance(adaptive_state, dict):
+                self._adaptive_state_cache = adaptive_state
+                # 已存在的群就地恢复
+                for gid, g in self._groups.items():
+                    if "adaptive" in g:
+                        g["adaptive"].restore(adaptive_state.get(gid, {}))
+        except Exception as e:
+            self._log(
+                "warning", f"[ProSocial] scheduler.start: 加载 adaptive_state 失败: {e}"
+            )
 
         self._main_task = asyncio.create_task(self._main_loop())
         self._log("info", "[ProSocial] scheduler 已启动")
@@ -376,6 +410,17 @@ class SocialScheduler:
             await self._kv_set("fatigue", {"value": float(fv), "last_ts": float(fts)})
         except Exception as e:
             self._log("warning", f"[ProSocial] stop: 持久化 fatigue 失败: {e}")
+
+        # v0.2.8 持久化每群自适应阈值状态（mult + since_eval，重启恢复）
+        try:
+            state = {
+                gid: g["adaptive"].state()
+                for gid, g in self._groups.items()
+                if "adaptive" in g
+            }
+            await self._kv_set("adaptive_state", state)
+        except Exception as e:
+            self._log("warning", f"[ProSocial] stop: 持久化 adaptive_state 失败: {e}")
 
         self._log("info", "[ProSocial] scheduler 已停止")
 
@@ -866,7 +911,14 @@ class SocialScheduler:
                 if g["state"] == GroupState.COOLDOWN and hit_level != "core":
                     suppressed_reason = "cooldown"
 
-            # 11. 判定唤醒（v0.2 融合判定）
+            # v0.2.8 自适应阈值：eff_threshold = threshold * adaptive.multiplier()
+            adaptive = g["adaptive"]
+            if bool(cfg.get("adaptive_threshold_enabled", True)):
+                eff_threshold = fusion.threshold * adaptive.multiplier()
+            else:
+                eff_threshold = fusion.threshold
+
+            # 11. 判定唤醒（v0.2 融合判定 + v0.2.8 自适应阈值）
             if suppressed_reason:
                 triggered = False
             elif personal_triggered:
@@ -876,7 +928,7 @@ class SocialScheduler:
                 # 降级路径：保持 v0.1 rule_fallback 语义（不引入融合）
                 triggered = bool(rule_hit)
             else:
-                # v0.2 融合判定：final_score >= threshold 且未被疲劳抑制
+                # v0.2 融合判定：final_score >= eff_threshold 且未被疲劳抑制
                 is_forced = (
                     hit_level == "core"
                     or rule_signal.mentions_bot
@@ -886,7 +938,19 @@ class SocialScheduler:
                     suppressed_reason = "fatigue"
                     triggered = False
                 else:
-                    triggered = fusion.final_score >= fusion.threshold
+                    triggered = fusion.final_score >= eff_threshold
+
+            # v0.2.8 配额检查：触发或个人触发时，检查每群发送频率硬上限
+            # 超限 → suppressed_reason="quota"，triggered 与 personal_triggered 均清零
+            if triggered or personal_triggered:
+                if not g["quota"].check(
+                    now,
+                    int(cfg.get("max_proactive_per_hour", 5)),
+                    int(cfg.get("max_proactive_per_day", 20)),
+                ):
+                    suppressed_reason = "quota"
+                    triggered = False
+                    personal_triggered = False
 
             # 12. DRY_RUN（含回放：replay_active 视同 dry_run）
             is_dry = self._replay_active or (
@@ -933,6 +997,8 @@ class SocialScheduler:
                 keyword_added_score=float(keyword_added_score),
                 # v0.2.6 Embedding 降级标记（F12）
                 embedding_degraded=(batch_emb is None),
+                # v0.2.8 自适应阈值倍率（F2a）
+                adaptive_mult=float(adaptive.multiplier()),
             )
             self._decision_log.add(d)
             try:
@@ -942,11 +1008,30 @@ class SocialScheduler:
                     "warning", f"[ProSocial] run_batch: 持久化 decision_log 失败: {e}"
                 )
 
-            # 14. 触发 -> 生成并发送
+            # v0.2.8 自适应阈值控制器：每次决策后记录（含未触发），满 20 自动步进
+            try:
+                adaptive.record(float(fusion.final_score), triggered)
+            except Exception:
+                pass
+
+            # 14. 触发 -> 生成并发送（v0.2.8 统一走 _dispatch_proactive）
             if triggered:
-                # F8: 主动回复时注入长窗口上下文
-                extra_ctx = ""
-                if bool(cfg.get("long_window_inject_proactive", True)):
+                # 注入文本：短窗口文本（含「昵称: 内容」上下文），空则退回 batch_text
+                inject_text = g["context"].short_window_text() or batch_text
+                hint = "这是群聊最新动态，请以你的人设自然接一两句话，简短口语化，不要复读。"
+                # v0.2: reply_type 区分 active（批处理触发）/ track（个人跟踪）
+                reply_type = "track" if personal_triggered else "active"
+
+                # 判断是否走注入路径（决定长窗口上下文是否预计算）
+                inject_enabled = bool(cfg.get("reply_via_pipeline", True)) and (
+                    self._inject is not None
+                )
+
+                # F8: 主动回复时注入长窗口上下文（仅旧路径需要，预计算保 lazy）
+                precomputed_extra_ctx = ""
+                if not inject_enabled and bool(
+                    cfg.get("long_window_inject_proactive", True)
+                ):
                     try:
                         short_text = g["context"].short_window_text()
                         if short_text and batch_emb is not None:
@@ -970,13 +1055,13 @@ class SocialScheduler:
                                                 long_window_text, short_text
                                             )
                                         )
-                                        extra_ctx = (
+                                        precomputed_extra_ctx = (
                                             f"相关历史摘要：\n{summary}"
                                             if summary
                                             else ""
                                         )
                                     else:
-                                        extra_ctx = (
+                                        precomputed_extra_ctx = (
                                             f"相关历史背景：\n{long_window_text}"
                                         )
                     except Exception as e:
@@ -985,45 +1070,39 @@ class SocialScheduler:
                             f"[ProSocial] run_batch: 长窗口注入失败 group={group_id}: {e}",
                         )
 
-                # LLM 生成
-                persona_text = str(cfg.get("persona_text", ""))
-                short_window_text = g["context"].short_window_text()
-                prompt = build_reply_prompt(
-                    persona_text=persona_text,
-                    short_window=short_window_text,
-                    extra_context=extra_ctx,
-                    batch_text=batch_text,
-                )
-                await self._metrics.incr("llm_calls", self._kv_set)
-                reply = await self._llm(prompt)
-                if not reply:
-                    self._log(
-                        "warning", f"[ProSocial] run_batch: LLM 无回复 group={group_id}"
+                # fallback_prompt_builder：旧路径惰性构造 prompt（闭包捕获预计算上下文）
+                def _build_reply_prompt(_extra_ctx=precomputed_extra_ctx):
+                    persona_text = str(cfg.get("persona_text", ""))
+                    short_window_text = g["context"].short_window_text()
+                    return build_reply_prompt(
+                        persona_text=persona_text,
+                        short_window=short_window_text,
+                        extra_context=_extra_ctx,
+                        batch_text=batch_text,
                     )
-                    return
 
-                # 发送
-                umo = g.get("umo") or self._umo_map.get(group_id, "")
-                ok = await self._send(umo, reply)
-                await self._metrics.incr("proactive_sends", self._kv_set)
-                if ok:
-                    await self._metrics.incr("proactive_triggered", self._kv_set)
-                    # v0.2: reply_type 区分 active（批处理触发）/ track（个人跟踪），
-                    # is_proactive=True（scheduler 主动决策发起，非被动接话）
-                    reply_type = "track" if personal_triggered else "active"
+                sent = await self._dispatch_proactive(
+                    group_id=group_id,
+                    inject_text=inject_text,
+                    hint=hint,
+                    reply_type=reply_type,
+                    fallback_prompt_builder=_build_reply_prompt,
+                    is_proactive=True,
+                    # v0.2.8：Sender 用触发用户 ID——个人跟踪取目标用户，否则取本批首条发言者
+                    sender_id=(
+                        rk_cache.target_user_id
+                        if personal_triggered and rk_cache is not None
+                        else (msgs[0].user_id if msgs else "")
+                    ),
+                )
+                if sent:
                     # v0.2.5 集成点 3：因关键词触发（集成点 2）的回复清除关键词缓存，防重复
                     # 注：on_bot_sent 会基于新回复重建缓存；此处清除是防止 on_bot_sent 失败时旧缓存残留
                     if keyword_triggered:
                         g["reply_keyword_cache"] = None
-                    await self.on_bot_sent(
-                        group_id=group_id,
-                        text=reply,
-                        ts=time.time(),
-                        reply_type=reply_type,
-                        is_proactive=True,
-                    )
                     # v0.2 等待窗口：发送成功后开窗收集同触发用户后续消息
                     # 降级方案：不起 100ms 轮询 task，依赖 on_message 触发 should_close 检查
+                    # 注：注入模式成功后同样就地 open 等待窗口，不依赖 after_message_sent 钩子
                     try:
                         ww_duration_ms = int(cfg.get("wait_window_duration_ms", 3000))
                         if ww_duration_ms > 0:
@@ -1031,8 +1110,12 @@ class SocialScheduler:
                                 duration_ms=ww_duration_ms,
                                 max_extra=int(cfg.get("wait_window_max_extra", 3)),
                             )
-                            # 触发用户 ID：取本批首个消息的 user_id
-                            trigger_uid = msgs[0].user_id if msgs else ""
+                            # 触发用户 ID：与 sender_id 一致——个人跟踪取目标用户，否则取首条发言者
+                            trigger_uid = (
+                                rk_cache.target_user_id
+                                if personal_triggered and rk_cache is not None
+                                else (msgs[0].user_id if msgs else "")
+                            )
                             ww.open(
                                 now_ms=time.time() * 1000.0, trigger_user_id=trigger_uid
                             )
@@ -1043,16 +1126,12 @@ class SocialScheduler:
                             "warning",
                             f"[ProSocial] run_batch: 开等待窗口失败 group={group_id}: {e}",
                         )
-                else:
-                    self._log(
-                        "warning", f"[ProSocial] run_batch: 发送失败 group={group_id}"
-                    )
             else:
                 # 15. 未触发 -> debug
                 self._log(
                     "debug",
                     f"[ProSocial] run_batch: 未触发 group={group_id} "
-                    f"final={fusion.final_score:.3f} thr={fusion.threshold:.3f} "
+                    f"final={fusion.final_score:.3f} thr={eff_threshold:.3f} "
                     f"hit={hit_level} reason={suppressed_reason or 'below_threshold'}",
                 )
         except Exception as e:
@@ -1176,45 +1255,141 @@ class SocialScheduler:
         except Exception as e:
             self._log("error", f"[ProSocial] on_bot_sent 异常 group={group_id}: {e}")
 
+    # ------------------------------------------------------------------ #
+    # v0.2.8 统一主动回复分发
+    # ------------------------------------------------------------------ #
+
+    async def _dispatch_proactive(
+        self,
+        *,
+        group_id: str,
+        inject_text: str,
+        hint: str,
+        reply_type: str,
+        fallback_prompt_builder: Callable[[], str],
+        is_proactive: bool,
+        call_on_bot_sent: bool = True,
+        sender_id: str = "",
+    ) -> bool:
+        """统一主动回复分发（v0.2.8）。
+
+        cfg ``reply_via_pipeline``=True 且 ``self._inject`` 存在 → 走管线注入
+        （main.py 实现 ``inject_fn(umo, text, hint, group_id, sender_id) -> bool``，
+        sender_id 作为合成消息 Sender 的 user_id，让对话历史显示真实触发用户）；
+        注入成功 → 计数 proactive_sends + proactive_triggered、quota.record、返回 True
+        （on_bot_sent 由 main.py after_message_sent 钩子触发，不在此调）。
+
+        注入失败/关闭 → 旧路径：``fallback_prompt_builder()`` → ``self._llm`` →
+        ``self._send`` → 成功后 quota.record + on_bot_sent（call_on_bot_sent=True 时）。
+
+        返回 True 表示已成功发送（注入或旧路径），False 表示未发送/失败。
+        """
+        cfg = self._config_getter()
+        g = self._get_group(group_id)
+        now = time.time()
+        umo = g.get("umo") or self._umo_map.get(group_id, "")
+
+        # 注入路径
+        if bool(cfg.get("reply_via_pipeline", True)) and self._inject is not None:
+            try:
+                ok = await self._inject(umo, inject_text, hint, group_id, sender_id)
+            except Exception as e:
+                self._log(
+                    "warning",
+                    f"[ProSocial] _dispatch_proactive: inject_fn 异常 group={group_id}: {e}",
+                )
+                ok = False
+            if ok:
+                await self._metrics.incr("proactive_sends", self._kv_set)
+                await self._metrics.incr("proactive_triggered", self._kv_set)
+                g["quota"].record(now)
+                return True
+            # 注入失败 → 降级走旧路径
+
+        # 旧路径：惰性构造 prompt → LLM 生成 → 发送
+        prompt = fallback_prompt_builder()
+        await self._metrics.incr("llm_calls", self._kv_set)
+        reply = await self._llm(prompt)
+        if not reply:
+            self._log(
+                "warning",
+                f"[ProSocial] _dispatch_proactive: LLM 无回复 group={group_id}",
+            )
+            return False
+        ok = await self._send(umo, reply)
+        await self._metrics.incr("proactive_sends", self._kv_set)
+        if ok:
+            await self._metrics.incr("proactive_triggered", self._kv_set)
+            g["quota"].record(now)
+            if call_on_bot_sent:
+                try:
+                    await self.on_bot_sent(
+                        group_id=group_id,
+                        text=reply,
+                        ts=time.time(),
+                        reply_type=reply_type,
+                        is_proactive=is_proactive,
+                    )
+                except Exception as e:
+                    self._log(
+                        "warning",
+                        f"[ProSocial] _dispatch_proactive: on_bot_sent 异常 group={group_id}: {e}",
+                    )
+            return True
+        else:
+            self._log(
+                "warning",
+                f"[ProSocial] _dispatch_proactive: 发送失败 group={group_id}",
+            )
+            return False
+
     async def _send_wait_window_reply(
         self, group_id: str, merged_text: str, trigger_user: str
     ) -> None:
         """等待窗口关闭后：把合并文本交 LLM 生成连贯回复并发送（v0.2）。
 
         被动接话语义（is_proactive=False，reply_type="passive"），发送成功后走
-        on_bot_sent 完成疲劳消耗/惯性/跟踪/瞥眼。
+        on_bot_sent 完成疲劳消耗/惯性/跟踪/瞥眼。v0.2.8 起统一走 _dispatch_proactive
+        （注入路径 + 旧路径降级），配额检查前置。
         """
         try:
             g = self._get_group(group_id)
             cfg = self._config_getter()
-            persona_text = str(cfg.get("persona_text", ""))
-            short_window_text = g["context"].short_window_text()
-            prompt = build_reply_prompt(
-                persona_text=persona_text,
-                short_window=short_window_text,
-                extra_context="",
-                batch_text=merged_text,
-            )
-            await self._metrics.incr("llm_calls", self._kv_set)
-            reply = await self._llm(prompt)
-            if not reply:
+            now = time.time()
+
+            # v0.2.8 配额检查前置：超限直接 return（省 LLM 开销）
+            if not g["quota"].check(
+                now,
+                int(cfg.get("max_proactive_per_hour", 5)),
+                int(cfg.get("max_proactive_per_day", 20)),
+            ):
                 self._log(
-                    "warning",
-                    f"[ProSocial] _send_wait_window_reply: LLM 无回复 group={group_id}",
+                    "debug",
+                    f"[ProSocial] _send_wait_window_reply: 配额超限 group={group_id}",
                 )
                 return
-            umo = g.get("umo") or self._umo_map.get(group_id, "")
-            ok = await self._send(umo, reply)
-            await self._metrics.incr("proactive_sends", self._kv_set)
-            if ok:
-                await self._metrics.incr("proactive_triggered", self._kv_set)
-                await self.on_bot_sent(
-                    group_id=group_id,
-                    text=reply,
-                    ts=time.time(),
-                    reply_type="passive",
-                    is_proactive=False,
+
+            # fallback_prompt_builder：旧路径惰性构造 prompt
+            def _build_prompt():
+                persona_text = str(cfg.get("persona_text", ""))
+                short_window_text = g["context"].short_window_text()
+                return build_reply_prompt(
+                    persona_text=persona_text,
+                    short_window=short_window_text,
+                    extra_context="",
+                    batch_text=merged_text,
                 )
+
+            await self._dispatch_proactive(
+                group_id=group_id,
+                inject_text=merged_text,
+                hint="请基于对方刚才的连续发言连贯回复一两句。",
+                reply_type="passive",
+                fallback_prompt_builder=_build_prompt,
+                is_proactive=False,
+                # v0.2.8：Sender 用等待窗口的触发用户
+                sender_id=trigger_user,
+            )
         except Exception as e:
             self._log(
                 "warning",
@@ -1277,7 +1452,7 @@ class SocialScheduler:
                 speakers = g["context"].recent_speakers(1)
                 if not speakers:
                     continue
-                _, _, last_text = speakers[0]
+                speaker_uid, _, last_text = speakers[0]
                 if not last_text:
                     continue
                 # 关键词命中
@@ -1295,17 +1470,32 @@ class SocialScheduler:
                 self._check_state_expiry(g, now)
                 if g["state"] == GroupState.COOLDOWN:
                     continue
-                # 生成简短回复并发送
-                umo = g.get("umo") or self._umo_map.get(gid, "")
-                prompt = build_glance_reply_prompt(persona_text, last_text)
-                await self._metrics.incr("llm_calls", self._kv_set)
-                reply = await self._llm(prompt)
-                if not reply:
+                # v0.2.8 配额检查前置（用目标群的 g["quota"]）：超限跳过此群
+                if not g["quota"].check(
+                    now,
+                    int(cfg.get("max_proactive_per_hour", 5)),
+                    int(cfg.get("max_proactive_per_day", 20)),
+                ):
                     continue
-                ok = await self._send(umo, reply)
-                await self._metrics.incr("proactive_sends", self._kv_set)
-                if ok:
-                    await self._metrics.incr("proactive_triggered", self._kv_set)
+
+                # v0.2.8 统一走 _dispatch_proactive（注入路径 + 旧路径降级）
+                # call_on_bot_sent=False：瞥眼不调 on_bot_sent 全流程（保持原有语义，
+                # 避免为瞥眼群设置 EXPECTING_REPLY/跟踪/级联瞥眼），仅手动消耗疲劳
+                def _build_glance_prompt(_persona=persona_text, _target=last_text):
+                    return build_glance_reply_prompt(_persona, _target)
+
+                sent = await self._dispatch_proactive(
+                    group_id=gid,
+                    inject_text=last_text,
+                    hint="像路人随口一句，不超过 30 字，不复读不提问。",
+                    reply_type="glance",
+                    fallback_prompt_builder=_build_glance_prompt,
+                    is_proactive=True,
+                    call_on_bot_sent=False,
+                    # v0.2.8：Sender 用瞥眼命中的目标消息发送者
+                    sender_id=speaker_uid,
+                )
+                if sent:
                     # v0.2 疲劳消耗：瞥眼插话按 glance 类型计（不调 on_bot_sent 全流程，
                     # 避免为瞥眼群设置 EXPECTING_REPLY/跟踪/级联瞥眼）
                     try:
@@ -1569,6 +1759,129 @@ class SocialScheduler:
         ):
             g["state"] = GroupState.IDLE
             g["state_until"] = 0.0
+
+    # ------------------------------------------------------------------ #
+    # v0.2.8 LLM 诊断调参统计
+    # ------------------------------------------------------------------ #
+
+    def collect_tune_stats(self) -> dict:
+        """汇总最近 200 条决策用于 LLM 诊断调参（v0.2.8）。
+
+        返回 dict 含：total / triggered_count / triggered_rate / suppressed_hist /
+        score_{mean,median,min,max} / threshold_mean / hit_level_hist /
+        factors_mean（五键） / fatigue_value_mean / config（调参相关配置子集）。
+
+        空日志返回所有字段默认值（total=0 等），便于下游 LLM 安全引用。
+        """
+        decisions = self._decision_log.recent(200)
+        # 配置子集（无论是否有决策都返回，供 LLM 对照当前参数）
+        config_subset = self._tune_config_subset()
+
+        if not decisions:
+            return {
+                "total": 0,
+                "triggered_count": 0,
+                "triggered_rate": 0.0,
+                "suppressed_hist": {},
+                "score_mean": 0.0,
+                "score_median": 0.0,
+                "score_min": 0.0,
+                "score_max": 0.0,
+                "threshold_mean": 0.0,
+                "hit_level_hist": {},
+                "factors_mean": {
+                    "s_int": 0.0,
+                    "s_topic": 0.0,
+                    "s_resp": 0.0,
+                    "c_cooldown": 0.0,
+                    "p_silence": 0.0,
+                },
+                "fatigue_value_mean": 0.0,
+                "config": config_subset,
+            }
+
+        total = len(decisions)
+        triggered_count = sum(1 for d in decisions if d.get("triggered"))
+        triggered_rate = triggered_count / total if total > 0 else 0.0
+
+        # suppressed_hist：suppressed_reason 频次（空串=未抑制但未触发→below_threshold）
+        suppressed_hist: dict[str, int] = {}
+        for d in decisions:
+            reason = d.get("suppressed_reason") or ""
+            if not reason and not d.get("triggered"):
+                reason = "below_threshold"
+            suppressed_hist[reason] = suppressed_hist.get(reason, 0) + 1
+
+        # hit_level_hist
+        hit_level_hist: dict[str, int] = {}
+        for d in decisions:
+            level = str(d.get("hit_level", "none"))
+            hit_level_hist[level] = hit_level_hist.get(level, 0) + 1
+
+        scores = [float(d.get("score", 0.0)) for d in decisions]
+        thresholds = [float(d.get("threshold", 0.0)) for d in decisions]
+        fatigue_values = [float(d.get("fatigue_value", 0.0)) for d in decisions]
+
+        # factors_mean（五键）
+        factor_keys = ("s_int", "s_topic", "s_resp", "c_cooldown", "p_silence")
+        factors_mean: dict[str, float] = {}
+        for k in factor_keys:
+            vals = [
+                float(d.get("factors", {}).get(k, 0.0))
+                for d in decisions
+                if isinstance(d.get("factors"), dict)
+            ]
+            factors_mean[k] = statistics.mean(vals) if vals else 0.0
+
+        return {
+            "total": total,
+            "triggered_count": triggered_count,
+            "triggered_rate": triggered_rate,
+            "suppressed_hist": suppressed_hist,
+            "score_mean": statistics.mean(scores),
+            "score_median": statistics.median(scores),
+            "score_min": min(scores),
+            "score_max": max(scores),
+            "threshold_mean": statistics.mean(thresholds),
+            "hit_level_hist": hit_level_hist,
+            "factors_mean": factors_mean,
+            "fatigue_value_mean": statistics.mean(fatigue_values),
+            "config": config_subset,
+        }
+
+    def _tune_config_subset(self) -> dict:
+        """返回调参相关配置子集（供 LLM 诊断时对照当前参数）。"""
+        cfg = self._config_getter()
+        keys = (
+            "base_threshold",
+            "w_int",
+            "w_topic",
+            "w_resp",
+            "w_cooldown",
+            "w_silence",
+            "core_interest_modifier",
+            "general_interest_modifier",
+            "edge_interest_modifier",
+            "expecting_modifier",
+            "cooldown_messages",
+            "fatigue_recovery_rate",
+            "fatigue_limit",
+            "fatigue_cost_active",
+            "fatigue_cost_passive",
+            "fatigue_cost_track",
+            "fatigue_cost_glance",
+            "fatigue_high_modifier",
+            "fatigue_medium_modifier",
+            "fatigue_suppress_enabled",
+            "after_reply_probability",
+            "max_proactive_per_hour",
+            "max_proactive_per_day",
+            "adaptive_threshold_enabled",
+            "enable_rule_channel",
+            "enable_vector_channel",
+            "fusion_weight_rule",
+        )
+        return {k: cfg.get(k) for k in keys}
 
 
 def _parse_hhmm(s: str) -> int | None:

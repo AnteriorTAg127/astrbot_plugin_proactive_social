@@ -465,6 +465,35 @@
       .wizard-foot { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
       .wizard-foot .spacer { flex: 1; }
 
+      /* ===== 通用弹窗（F3 LLM 诊断调参复用，样式对齐 wizard）===== */
+      .modal-overlay {
+        position: fixed; inset: 0; background: rgba(15, 23, 42, .55);
+        z-index: 95; display: none; align-items: center; justify-content: center;
+        padding: 20px;
+      }
+      .modal-overlay.show { display: flex; }
+      .modal-card {
+        background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+        box-shadow: var(--shadow-lg); width: 100%; max-width: 640px; max-height: 90vh;
+        display: flex; flex-direction: column; overflow: hidden;
+      }
+      .modal-head {
+        padding: 14px 20px; border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; gap: 8px;
+      }
+      .modal-head .title { font-size: 16px; font-weight: 600; flex: 1; }
+      .modal-head #modalClose { padding: 2px 10px; font-size: 18px; line-height: 1; }
+      .modal-body { padding: 16px 20px; overflow: auto; flex: 1; font-size: 13px; line-height: 1.55; }
+      .modal-body h3 { font-size: 15px; font-weight: 600; margin: 0 0 10px; }
+      .modal-body pre { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px;
+        padding: 10px 12px; margin: 6px 0 12px; font-family: var(--mono); font-size: 12px; max-height: 240px; overflow: auto; }
+      .modal-body strong { color: var(--text); }
+      .modal-body .btn { margin-top: 10px; }
+      .patch-table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 12px; }
+      .patch-table th, .patch-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+      .patch-table th { background: var(--bg-elev); color: var(--muted); font-weight: 600; }
+      .patch-table td { font-family: var(--mono); word-break: break-all; }
+
       /* ===== 兴趣关键词 Tab4（F20）===== */
       .interests-wrap { padding: 0; }
       .interests-head {
@@ -595,7 +624,7 @@
     <header>
       <div class="brand">
         <div class="logo">PS</div>
-        <h1>主动社交<span class="sub">任务控制台 v0.2.6</span></h1>
+        <h1>主动社交<span class="sub">任务控制台 v0.2.8</span></h1>
       </div>
       <span class="meta" id="lastRefresh">未刷新</span>
       <span id="errBanner"></span>
@@ -617,6 +646,42 @@
       <!-- ===== Tab 1: 概览 ===== -->
       <div class="tab-panel active" data-tab="overview">
         <div class="panel-grid">
+          <!-- 0. LLM 诊断调参（F3）-->
+          <section class="panel span-12" id="panel-autotune">
+            <h2><span class="title">LLM 诊断调参</span><button class="btn" id="autotuneBtn" style="margin-left:auto;">🤖 LLM 诊断调参</button></h2>
+            <div class="meta" style="font-size:11px;color:var(--muted);margin-top:4px;">
+              基于最近决策数据由 LLM 分析并给出参数建议，弹窗中查看分析、建议参数与预期效果，确认后一键应用。
+            </div>
+            <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+              <div style="flex:0 0 auto;">
+                <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">回复风格偏好</label>
+                <select id="tuneStyle" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--fg);font-size:13px;">
+                  <option value="balanced">⚖️ 平衡（目标 10%-20%）</option>
+                  <option value="proactive">📣 偏主动（目标 20%-30%）</option>
+                  <option value="passive">🤫 偏被动（目标 5%-10%）</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:300px;">
+                <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">补充指导（可选，告诉 LLM 你的特殊需求）</label>
+                <textarea id="tuneGuidance" rows="2" placeholder="例如：群内话题偏技术，讨论编程时更积极；夜间减少插话；不要用网络用语..." style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--fg);font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+              </div>
+            </div>
+            <details style="margin-top:8px;">
+              <summary style="cursor:pointer;font-size:12px;color:var(--muted);user-select:none;">📖 工作机制说明（点击展开）</summary>
+              <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.7;padding-left:8px;border-left:2px solid var(--border);">
+                <strong>评分管线</strong>：机器人通过双通道融合评分决定是否主动插话——<br>
+                ① 向量通道：消息与兴趣关键词的余弦相似度（兴趣 s_int / 话题 s_topic / 回应 s_resp）<br>
+                ② 规则通道：冷却因子 c_cooldown + 沉默时长 p_silence<br>
+                融合分 = Σ(w_× 因子) + modifiers，≥ 阈值则触发。<br><br>
+                <strong>LLM 调参流程</strong>：分析最近 200 条决策（触发率 / 得分分布 / 五因子均衡 / 疲劳状态 / 抑制原因），
+                结合你选的<strong>风格偏好</strong>和<strong>补充指导</strong>，给出 18 项白名单参数的调整建议。
+                建议经类型/范围校验后才会应用，不会写入非法值。<br><br>
+                <strong>安全网</strong>：自适应阈值控制器持续把触发率收敛到 5%-30% 健康区间；
+                每群每小时/每日发送上限（max_proactive_per_hour/day）作为最终兜底，任何参数调崩都不会话痨。
+              </div>
+            </details>
+          </section>
+
           <!-- 1. 状态面板 -->
           <section class="panel span-5" id="panel-status">
             <h2><span class="dot" id="liveDot"></span><span class="title">运行状态</span></h2>
@@ -782,6 +847,17 @@
       </div>
     </div>
 
+    <!-- 通用弹窗遮罩（F3 LLM 诊断调参等复用）-->
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div class="title" id="modalTitle"></div>
+          <button class="btn ghost" id="modalClose" title="关闭">×</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+      </div>
+    </div>
+
     <!-- bridge SDK：内联脚本同步访问需显式引入（见 plugin-pages.md）-->
     <script src="/api/plugin/page/bridge-sdk.js"></script>
     <script>
@@ -848,7 +924,10 @@
         reply_keyword_enabled: true, reply_keyword_top_n: 5, reply_keyword_boost_factor: 0.25,
         reply_keyword_ttl_seconds: 60, reply_keyword_min_score_to_trigger: 0.5, reply_keyword_early_clear_low_score: 0.1,
 	        // --- v0.2.6 新增 ---
-	        interest_example_count: 3, interest_keyword_count: 12, long_window_inject_proactive: true
+	        interest_example_count: 3, interest_keyword_count: 12, long_window_inject_proactive: true,
+	        // --- v0.2.8 新增（F2/F3）---
+	        reply_via_pipeline: true, adaptive_threshold_enabled: true,
+	        max_proactive_per_hour: 5, max_proactive_per_day: 20
       };
 
       // ============ 配置字段定义（key 与后端 get_config_view 返回键一致）============
@@ -868,6 +947,11 @@
             { key: "replay_speed", label: "回放默认倍速", type: "float", min: 0.1, max: 100, step: 0.1, hint: "/prosocial replay 未指定倍速时使用" },
             { key: "interest_example_count", label: "每级示例句子数", type: "int", min: 1, max: 10, hint: "LLM 生成兴趣时每个级别生成的示例句子数量（越多越精准，但消耗更多 token）" },
             { key: "interest_keyword_count", label: "高唤醒关键词数", type: "int", min: 3, max: 30, hint: "LLM 生成的高唤醒关键词数量（影响规则通道匹配率）" },
+            // --- v0.2.8 新增（F2 主动回复管线化 + F3 自适应阈值与配额兜底）---
+            { key: "reply_via_pipeline", label: "主动回复走消息管线", type: "bool", hint: "开启后主动回复注入 AstrBot 标准消息管线，追踪页自动显示完整事件、对话历史自动保存；关闭回退直连 LLM 旧路径" },
+            { key: "adaptive_threshold_enabled", label: "自适应阈值控制器", type: "bool", hint: "按近期触发率自动收敛阈值倍率（5%-30% 触发率带），消除 embedding 尺度差异导致的调参敏感" },
+            { key: "max_proactive_per_hour", label: "每群每小时主动发送上限", type: "int", min: 0, max: 200, hint: "0=不限；调参失误的最终兜底，超限后 suppressed_reason=quota" },
+            { key: "max_proactive_per_day", label: "每群每日主动发送上限", type: "int", min: 0, max: 500, hint: "0=不限；调参失误的最终兜底" },
           ]
         },
         {
@@ -1574,6 +1658,74 @@
         t._timer = setTimeout(function () { t.className = "toast"; }, 2600);
       }
 
+      // ============ 通用弹窗（F3 LLM 诊断调参等复用）============
+      function showModal(title, bodyHtml) {
+        document.getElementById("modalTitle").textContent = title || "";
+        document.getElementById("modalBody").innerHTML = bodyHtml || "";
+        document.getElementById("modalOverlay").classList.add("show");
+      }
+      function closeModal() {
+        document.getElementById("modalOverlay").classList.remove("show");
+      }
+
+      // ============ LLM 诊断调参（F3）============
+      var _lastTuneSuggestion = {};   // 缓存最近一次 analyze 建议供 apply 使用
+      async function autotuneAnalyze() {
+        if (!bridge) return;
+        var style = document.getElementById("tuneStyle").value;
+        var guidance = document.getElementById("tuneGuidance").value;
+        // 持久化偏好到 localStorage，下次打开自动恢复
+        try {
+          localStorage.setItem("prosocial_tune_style", style);
+          localStorage.setItem("prosocial_tune_guidance", guidance);
+        } catch (e) { /* localStorage 不可用时静默 */ }
+        showModal("LLM 诊断调参", '<div class="empty">正在分析最近决策数据…</div>');
+        try {
+          var resp = await bridge.apiPost("prosocial/autotune", { action: "analyze", style: style, guidance: guidance });
+          if (!resp || !resp.ok) {
+            showModal("诊断失败", escapeHtml((resp && resp.error) || "未知错误"));
+            return;
+          }
+          _lastTuneSuggestion = resp.suggested_patch || {};
+          var patchKeys = Object.keys(_lastTuneSuggestion);
+          var patchRows = patchKeys.map(function (k) {
+            return '<tr><td>' + escapeHtml(k) + '</td><td>'
+              + escapeHtml(JSON.stringify(_lastTuneSuggestion[k])) + '</td></tr>';
+          }).join("");
+          var body = '<h3>🤖 LLM 诊断结果</h3>'
+            + '<div><strong>分析：</strong><pre style="white-space:pre-wrap;">'
+            + escapeHtml(resp.analysis || "") + '</pre></div>'
+            + '<div><strong>建议参数：</strong>'
+            + (patchKeys.length
+              ? '<table class="patch-table"><thead><tr><th>键</th><th>建议值</th></tr></thead><tbody>'
+                + patchRows + '</tbody></table>'
+              : '<div class="empty">无建议参数</div>')
+            + '</div>'
+            + '<div><strong>预期效果：</strong>' + escapeHtml(resp.expected_effect || "—") + '</div>'
+            + '<button class="btn" id="autotuneApplyBtn">应用建议</button>';
+          showModal("🤖 LLM 诊断结果", body);
+          var applyBtn = document.getElementById("autotuneApplyBtn");
+          if (applyBtn) applyBtn.addEventListener("click", autotuneApply);
+        } catch (e) {
+          showModal("诊断异常", escapeHtml(String(e)));
+        }
+      }
+      async function autotuneApply() {
+        var patch = _lastTuneSuggestion || {};
+        try {
+          var resp = await bridge.apiPost("prosocial/autotune", { action: "apply", patch: patch });
+          if (resp && resp.ok) {
+            toast("已应用 " + (resp.updated || 0) + " 项", "ok");
+            closeModal();
+            loadConfig();   // 刷新配置面板，反映新参数
+          } else {
+            toast("应用失败：" + ((resp && resp.error) || "未知错误"), "err");
+          }
+        } catch (e) {
+          toast("应用异常：" + String(e), "err");
+        }
+      }
+
       // ============ 配置向导（F17，7 步）============
       var wizardStep = 0;          // 当前步骤索引 0..6
       var wizardPatch = {};        // 临时改动累积（步骤间合并）
@@ -2137,13 +2289,27 @@
         document.getElementById("wizPrev").addEventListener("click", wizPrev);
         // F23：仅「退出」按钮 + Esc 可关闭，遮罩点击不关闭
         document.getElementById("wizExit").addEventListener("click", tryCloseWizard);
-        // Esc 键关闭向导（同样走未保存确认）
+        // Esc 键关闭向导（同样走未保存确认）/ 通用弹窗
         document.addEventListener("keydown", function (e) {
           if (e.key !== "Escape") return;
+          var modalOv = document.getElementById("modalOverlay");
+          if (modalOv && modalOv.classList.contains("show")) { closeModal(); return; }
           var overlay = document.getElementById("wizardOverlay");
           if (!overlay || !overlay.classList.contains("show")) return;
           tryCloseWizard();
         });
+
+        // F3 LLM 诊断调参按钮 + 通用弹窗关闭
+        document.getElementById("autotuneBtn").addEventListener("click", autotuneAnalyze);
+        document.getElementById("modalClose").addEventListener("click", closeModal);
+        // 弹窗遮罩不关闭——LLM 诊断结果耗时且宝贵，仅 × 按钮可关（与 F23 向导一致）
+        // 恢复上次保存的调参偏好（风格 + 补充指导）
+        try {
+          var savedStyle = localStorage.getItem("prosocial_tune_style");
+          var savedGuidance = localStorage.getItem("prosocial_tune_guidance");
+          if (savedStyle) document.getElementById("tuneStyle").value = savedStyle;
+          if (savedGuidance) document.getElementById("tuneGuidance").value = savedGuidance;
+        } catch (e) { /* localStorage 不可用时静默 */ }
 
         // F11 导出 JSON 按钮
 	        document.getElementById("exportBtn").addEventListener("click", function() {
