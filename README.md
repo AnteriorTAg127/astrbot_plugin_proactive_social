@@ -7,7 +7,11 @@
 - **主动回复走消息管线（v0.2.8）**：主动回复注入 AstrBot 标准消息管线（合成 AstrBotMessage → handle_msg），追踪页自动显示完整事件与 LLM 调用记录，对话历史自动保存；on_llm_request 钩子注入接话风格提示（不污染历史）；关闭或异常时降级回直连 LLM 旧路径
 - **自适应阈值控制器（v0.2.8）**：每群按近期触发率自动收敛阈值倍率（5%-30% 触发率带），消除 embedding 尺度差异导致的调参敏感；mult 钳制 [0.5, 2.0]，状态持久化
 - **每群发送频率硬上限（v0.2.8）**：max_proactive_per_hour / max_proactive_per_day 超限后 suppressed_reason="quota"，调参失误的最终兜底，任何参数调崩都不会话痨
-- **LLM 自动诊断调参（v0.2.8）**：`/prosocial tune` 指令 + Dashboard 按钮，分析最近 200 条决策数据生成参数建议（18 键白名单 + 校验器双重过滤后应用），无需手动试错
+- **LLM 全视野调参（v0.2.9）**：`_build_tune_prompt` 重写为注入全量配置（减 6 项 `TUNE_DENYLIST` 安全敏感键）+ 兴趣关键词（items/hate/high_interest/rejected）+ 人设文本+补充知识 + 作息 schedule + 群白名单 + AdaptiveThreshold 状态（mult/window_rate）；LLM 输出三段建议：`suggested_patch`（标量配置）/ `suggested_keywords_patch`（关键词增删）/ `persona_revision`（人设改写）
+- **触发率越界自动调参（v0.2.9）**：复用 AdaptiveThreshold 评估周期，窗口触发率 >`autotune_safe_rate_hi`（默认 0.30）/<`autotune_safe_rate_lo`（默认 0.05）且样本≥`autotune_min_decisions`（默认 30）时后台 `asyncio.create_task` 调 LLM 重写参数；`autotune_auto_apply=true` 时自动应用建议，否则仅缓存
+- **LLM 调参速率限制（v0.2.9）**：`core/tune_controller.py` `TuneRateLimiter` 对所有调参调用（手动 + 自动）施加冷却（`autotune_cooldown_hours` 默认 3h）+ 日上限（`autotune_max_per_day` 默认 4 次），ADMIN 可 `force` 跳过但仍 `record()` 计入配额；状态持久化到 SQLite KV `tune_rate_state`
+- **LLM 扩展可写键 denylist 模式（v0.2.9）**：用 6 项 `TUNE_DENYLIST`（enable/dry_run/group_whitelist/group_mode/chat_provider_id/embedding_provider_id）替换 v0.2.8 的 18 项白名单，可写键扩到约 70 项 + 关键词增删 + 人设改写；DENYLIST 键被 LLM 输出时丢弃并在 analysis 末尾注明 `[已过滤安全敏感键: ...]`；apply 分流四类：标量走 ConfigStore.set_many / persona 变更触发后台 regenerate / keywords_patch 走 interest_mgr.add_item+remove_item+apply_rejected / persona_revision 合并入 persona_text
+- **LLM 自动诊断调参（v0.2.8）**：`/prosocial tune` 指令 + Dashboard 按钮，分析最近 200 条决策数据生成参数建议，无需手动试错
 - **兴趣生成数量配置生效（v0.2.8）**：persona_hash 纳入 example_count/keyword_count，改数量触发缓存失效与后台重建；重启不再回退
 - **兴趣关键词增删改查（v0.2.6）**：支持在 Dashboard 中添加/编辑/删除兴趣关键词和示例句子，自动重算向量质心
 - **可配置的示例句子和关键词数量（v0.2.6）**：interest_example_count / interest_keyword_count 控制生成数量
@@ -45,7 +49,7 @@
 | `/prosocial scores [n]` | ADMIN | 查看最近 n 条决策记录（含 score_a/score_b/α/channel） |
 | `/prosocial replay <file>` | ADMIN | 回放历史消息 JSONL |
 | `/prosocial fatigue` | ADMIN | 查看全局疲劳值/级别/阈值倍率/抑制状态（v0.2） |
-| `/prosocial tune [apply]` | ADMIN | LLM 诊断调参：分析最近 200 条决策生成参数建议；`apply` 应用缓存建议（v0.2.8） |
+| `/prosocial tune [style\|apply\|force\|status]` | ADMIN | LLM 全视野调参：`[style]` 分析（受速率限制，可选 proactive/passive/balanced）；`apply` 应用缓存建议；`force [style]` 强制跳过速率限制；`status` 查看速率限制状态 + 上次建议摘要 + 自动触发开关（v0.2.9） |
 
 ## 配置
 
@@ -53,6 +57,7 @@
 
 - **基础**：人设、活跃时段、群模式、base_threshold、作息调度、示例句子数量、关键词数量
 - **管线与自适应（v0.2.8）**：reply_via_pipeline / adaptive_threshold_enabled / max_proactive_per_hour / max_proactive_per_day
+- **LLM 调参（v0.2.9）**：autotune_safe_rate_hi / autotune_safe_rate_lo / autotune_auto_trigger_enabled / autotune_auto_apply / autotune_min_decisions / autotune_cooldown_hours / autotune_max_per_day
 - **双通道融合（v0.2）**：enable_rule_channel / enable_vector_channel / fusion_weight_rule / dynamic_fusion_enabled
 - **规则引擎（v0.2）**：强唤醒词 / 上下文唤醒词 / 疑问信号 / 屏蔽短语
 - **疲劳（v0.2）**：衰减率 / 上限 / 各类型消耗成本 / 高中疲劳阈值修正 / 抑制开关

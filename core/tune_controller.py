@@ -3,6 +3,7 @@
 对所有 llm_autotune 调用施加冷却（cooldown_hours）+ 日上限（max_per_day）双重限制。
 纯标准库（deque），不 import astrbot/numpy，可离线单元测试。
 """
+
 from __future__ import annotations
 
 from collections import deque
@@ -23,7 +24,9 @@ class TuneRateLimiter:
         self._history: deque[float] = deque()  # 24h 内调用时间戳
         self._last_call: float | None = None
 
-    def allow(self, now: float, cooldown_hours: float, max_per_day: int) -> tuple[bool, str]:
+    def allow(
+        self, now: float, cooldown_hours: float, max_per_day: int
+    ) -> tuple[bool, str]:
         """检查是否允许调用。True=允许，False=被限（reason='cooldown'/'daily_cap')。
 
         cooldown_hours=0 不限冷却；max_per_day=0 不限日数。
