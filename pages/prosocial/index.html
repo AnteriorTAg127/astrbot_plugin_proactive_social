@@ -805,12 +805,15 @@
         fatigue_cost_track: 0.6, fatigue_cost_glance: 1.5, fatigue_high_modifier: 1.2, fatigue_medium_modifier: 1.1,
         fatigue_suppress_enabled: true,
         after_reply_probability: 0.6, probability_duration: 30, wait_window_duration_ms: 3000,
-        wait_window_max_extra: 3, proactive_temp_boost: 0.5, proactive_boost_duration: 60
+        wait_window_max_extra: 3, proactive_temp_boost: 0.5, proactive_boost_duration: 60,
+        // --- 回复关键词匹配（v0.2.5）---
+        reply_keyword_enabled: true, reply_keyword_top_n: 5, reply_keyword_boost_factor: 0.25,
+        reply_keyword_ttl_seconds: 60, reply_keyword_min_score_to_trigger: 0.5, reply_keyword_early_clear_low_score: 0.1
       };
 
       // ============ 配置字段定义（key 与后端 get_config_view 返回键一致）============
-      // 分组：基础设置 / 阈值与权重 / 批次与冷却 / 调度与轮询 / 瞥眼与DRY / 双通道与融合 / 规则引擎 / 疲劳度 / 惯性窗口
-      // 共 71 项普通参数（chat_provider_id 不在面板，留主面板原生 select_provider）
+      // 分组：基础设置 / 阈值与权重 / 批次与冷却 / 调度与轮询 / 瞥眼与DRY / 双通道与融合 / 规则引擎 / 疲劳度 / 惯性窗口 / 回复关键词匹配
+      // 共 77 项普通参数（chat_provider_id 不在面板，留主面板原生 select_provider）
       // hint 取自 _conf_schema.json 的 description / hint。min/max 取自 ConfigStore.VALIDATORS。
       var CONFIG_GROUPS = [
         {
@@ -927,6 +930,17 @@
             { key: "wait_window_max_extra", label: "窗口最大收集条数", type: "int", min: 0, max: 100, hint: "等待窗口最大额外收集消息条数" },
             { key: "proactive_temp_boost", label: "主动话题额外提升", type: "float", min: 0, max: 1, step: 0.01, hint: "主动发起后窗口内叠加" },
             { key: "proactive_boost_duration", label: "主动话题持续(秒)", type: "int", min: 0, max: 3600, hint: "超时无回应记一次主动失败" },
+          ]
+        },
+        {
+          id: "reply_keyword", label: "回复关键词匹配",
+          fields: [
+            { key: "reply_keyword_enabled", label: "启用回复关键词匹配", type: "bool", hint: "利用机器人上次回复内容做分词，目标用户下次发消息时计算匹配度叠加到最终评分" },
+            { key: "reply_keyword_top_n", label: "关键词提取数量 N", type: "int", min: 1, max: 20, hint: "jieba TF-IDF 提取的关键词最大数量" },
+            { key: "reply_keyword_boost_factor", label: "匹配增益系数", type: "float", min: 0, max: 2, step: 0.01, hint: "匹配得分乘以此系数得到 added_score，叠加到 final_score" },
+            { key: "reply_keyword_ttl_seconds", label: "缓存有效期(秒)", type: "int", min: 1, max: 3600, hint: "关键词缓存超过此秒数后失效" },
+            { key: "reply_keyword_min_score_to_trigger", label: "直接触发阈值", type: "float", min: 0, max: 1, step: 0.01, hint: "个人跟踪模块中，关键词匹配得分超过此值时直接触发回复" },
+            { key: "reply_keyword_early_clear_low_score", label: "连续低分清除阈值", type: "float", min: 0, max: 1, step: 0.01, hint: "目标用户消息得分低于此值连续两次后清除缓存" },
           ]
         },
       ];

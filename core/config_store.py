@@ -126,6 +126,13 @@ class ConfigStore:
         "wait_window_max_extra": 3,
         "proactive_temp_boost": 0.5,
         "proactive_boost_duration": 60,
+        # --- 回复关键词匹配（v0.2.5）---
+        "reply_keyword_enabled": True,
+        "reply_keyword_top_n": 5,
+        "reply_keyword_boost_factor": 0.25,
+        "reply_keyword_ttl_seconds": 60,
+        "reply_keyword_min_score_to_trigger": 0.5,
+        "reply_keyword_early_clear_low_score": 0.1,
     }
 
     # 类型/范围校验表：(类型, 下限, 上限)；None 表示不校验该侧。
@@ -185,6 +192,13 @@ class ConfigStore:
         "wait_window_max_extra": (int, 0, 100),
         "proactive_temp_boost": (float, 0.0, 1.0),
         "proactive_boost_duration": (int, 0, 3600),
+        # v0.2.5 回复关键词匹配校验
+        "reply_keyword_enabled": (bool, None, None),
+        "reply_keyword_top_n": (int, 1, 20),
+        "reply_keyword_boost_factor": (float, 0.0, 2.0),
+        "reply_keyword_ttl_seconds": (int, 1, 3600),
+        "reply_keyword_min_score_to_trigger": (float, 0.0, 1.0),
+        "reply_keyword_early_clear_low_score": (float, 0.0, 1.0),
     }
 
     # list 类型键（校验时 isinstance list）；schedule 单独特判 dict 列表

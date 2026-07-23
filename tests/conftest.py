@@ -340,6 +340,13 @@ def default_config() -> dict:
         "wait_window_max_extra": 3,
         "proactive_temp_boost": 0.5,
         "proactive_boost_duration": 60,
+        # v0.2.5 回复关键词匹配
+        "reply_keyword_enabled": True,
+        "reply_keyword_top_n": 5,
+        "reply_keyword_boost_factor": 0.25,
+        "reply_keyword_ttl_seconds": 60,
+        "reply_keyword_min_score_to_trigger": 0.5,
+        "reply_keyword_early_clear_low_score": 0.1,
     }
 
 

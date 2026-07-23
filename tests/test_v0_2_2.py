@@ -35,9 +35,7 @@ class _MockBridge:
         self.interests_data: dict = {
             "generated": True,
             "persona_hash": "h",
-            "items": [
-                {"label": "core", "topic": "t", "examples": ["e"], "weight": 1.5}
-            ],
+            "items": [{"label": "core", "topic": "t", "examples": ["e"], "weight": 1.5}],
             "hate_keywords": ["bad"],
             "high_interest_keywords": ["good"],
             "rejected": {"examples": [], "keywords": []},
@@ -220,7 +218,9 @@ def test_apply_rejected_no_data(mock_log, tmp_data_dir, mock_embed):
     assert "尚未生成" in msg
 
 
-def test_apply_rejected_removes_example(mock_llm, mock_embed, mock_log, tmp_data_dir):
+def test_apply_rejected_removes_example(
+    mock_llm, mock_embed, mock_log, tmp_data_dir
+):
     """apply_rejected 移除被 reject 的 example。"""
     mgr = InterestManager(tmp_data_dir, mock_log)
     asyncio.run(mgr.regenerate("p", "k", mock_llm, mock_embed))
@@ -238,7 +238,9 @@ def test_apply_rejected_removes_example(mock_llm, mock_embed, mock_log, tmp_data
     assert len(general.examples) == 2
 
 
-def test_apply_rejected_removes_keyword(mock_llm, mock_embed, mock_log, tmp_data_dir):
+def test_apply_rejected_removes_keyword(
+    mock_llm, mock_embed, mock_log, tmp_data_dir
+):
     """apply_rejected 移除被 reject 的 keyword。"""
     mgr = InterestManager(tmp_data_dir, mock_log)
     asyncio.run(mgr.regenerate("p", "k", mock_llm, mock_embed))
@@ -265,7 +267,9 @@ def test_apply_rejected_recomputes_centroids(
     assert new_centroid != orig_centroid
 
 
-def test_apply_rejected_persists_npz(mock_llm, mock_embed, mock_log, tmp_data_dir):
+def test_apply_rejected_persists_npz(
+    mock_llm, mock_embed, mock_log, tmp_data_dir
+):
     """apply_rejected 后 npz 持久化，新 manager 加载到过滤后数据。"""
     mgr = InterestManager(tmp_data_dir, mock_log)
     asyncio.run(mgr.regenerate("p", "k", mock_llm, mock_embed))
@@ -410,7 +414,9 @@ def test_web_post_interests_reject_keyword():
     """POST interests {action:reject, kind:keyword} 成功。"""
     bridge = _MockBridge()
     h = build_handlers(bridge)["POST /prosocial/interests"]
-    status, body = _run(h, body={"action": "reject", "kind": "keyword", "text": "bar"})
+    status, body = _run(
+        h, body={"action": "reject", "kind": "keyword", "text": "bar"}
+    )
     assert status == 200
     assert body["ok"] is True
 

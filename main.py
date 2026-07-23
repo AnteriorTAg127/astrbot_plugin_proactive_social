@@ -60,7 +60,7 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.1")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.2.5")
 class ProSocialPlugin(Star):
     """主动社交插件入口（模块 G）。
 
@@ -798,7 +798,9 @@ class ProSocialPlugin(Star):
             try:
                 await self.put_kv_data(
                     "interest_rejected",
-                    json.dumps(self.interest_mgr.get_rejected(), ensure_ascii=False),
+                    json.dumps(
+                        self.interest_mgr.get_rejected(), ensure_ascii=False
+                    ),
                 )
             except Exception as e:
                 self._log("warning", f"持久化 interest_rejected 失败: {e}")

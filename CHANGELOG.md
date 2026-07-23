@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.5] - 2026-07-23
+
+### Added
+- **基于回复分词的连续对话匹配**：Bot 每次群聊回复后用 jieba TF-IDF 提取关键词缓存（按目标用户 + TTL），目标用户下次发消息时计算匹配得分，叠加到双通道融合后的 `final_score`，弥补向量通道在超短回复（1-3 字）上的语义缺失
+- **个人跟踪模块增强**：向量相似度不足时，转用关键词匹配作为强信号直接触发回复（超过 `reply_keyword_min_score_to_trigger` 阈值），并使用 `track` 档位疲劳消耗（0.6，低于 active 1.2）
+- **关键词缓存生命周期**：覆盖式更新（新回复立即失效旧缓存）/ TTL 过期（默认 60s）/ 回复后清除（防重复触发）/ 连续低分清除（默认 2 次 <0.1 清除）
+- **6 项配置项**（`reply_keyword_enabled` / `reply_keyword_top_n` / `reply_keyword_boost_factor` / `reply_keyword_ttl_seconds` / `reply_keyword_min_score_to_trigger` / `reply_keyword_early_clear_low_score`），Dashboard 配置面板新增「回复关键词匹配」分组
+- **`BatchDecision` 新增 2 字段**：`keyword_match_score` / `keyword_added_score`（向后兼容默认 0.0）
+- **jieba 加入 requirements.txt**（运行时仍 try-import 兜底，缺失时禁用功能并日志警告一次）
+- 22 项 v0.2.5 单元测试（11 项 ReplyKeywordManager + 11 项 scheduler 集成 3 集成点 + 生命周期 + jieba 缺失 + 降级路径）
+
+### Changed
+- `scheduler.on_bot_sent`：增加关键词提取（防重时跳过；jieba 不可用仅警告一次）
+- `scheduler.run_batch`：融合后做关键词加分（集成点 1）+ 个人跟踪增强（集成点 2）+ track 档位疲劳消耗（集成点 3）+ 回复后清除缓存 + 连续低分清除 + dry_run 日志
+- 插件版本 v0.2.1 → v0.2.5
+
+### Notes
+- **私聊支持留作 v0.2.6**：当前架构完全围绕群聊设计（仅 `on_group_message` handler，scheduler 以 `group_id` 为核心），私聊无 `run_batch` 决策管线。本版本聚焦群聊实现（覆盖 PRD 90% 价值）。
+
 ## [0.2.2] - 2026-07-23
 
 ### Added

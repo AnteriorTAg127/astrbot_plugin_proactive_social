@@ -150,6 +150,8 @@ class BatchDecision:
     fatigue_level     : (v0.2) 决策时全局疲劳级别 "none"/"low"/"medium"/"high"
     fatigue_value     : (v0.2) 决策时全局疲劳值
     channel           : (v0.2) 决策通道 "vector"/"rule"/"fusion"
+    keyword_match_score : (v0.2.5) 回复关键词匹配得分 [0,1]
+    keyword_added_score : (v0.2.5) 回复关键词加分（match_score × boost_factor）
     """
 
     ts: float
@@ -170,6 +172,9 @@ class BatchDecision:
     fatigue_level: str = "none"  # 决策时全局疲劳级别
     fatigue_value: float = 0.0  # 决策时全局疲劳值
     channel: str = "vector"  # "vector"/"rule"/"fusion"
+    # --- v0.2.5 回复关键词增量字段（带默认值，向后兼容 v0.2 持久化日志）---
+    keyword_match_score: float = 0.0  # 回复关键词匹配得分 [0,1]
+    keyword_added_score: float = 0.0  # 回复关键词加分（match × boost）
 
 
 @dataclass

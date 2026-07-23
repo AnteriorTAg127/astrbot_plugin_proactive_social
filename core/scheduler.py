@@ -47,6 +47,7 @@ from .models import (
 from .prompts import build_glance_reply_prompt, build_reply_prompt
 from .ratelimit import TokenBucketRateLimiter
 from .replay import ReplayEngine
+from .reply_keyword import ReplyKeywordManager
 from .rule_engine import RuleEngine
 from .tracker import PersonalTracker
 
@@ -127,6 +128,8 @@ class SocialScheduler:
         # v0.2 on_bot_sent 防重：group_id -> 上次 bot 文本；同 text <2s 跳过 consume/inertia
         self._last_bot_text: dict[str, str] = {}
         self._last_bot_text_ts: dict[str, float] = {}
+        # v0.2.5 jieba 不可用时仅警告一次（避免每次 on_bot_sent 都刷屏）
+        self._rk_unavailable_warned: bool = False
 
     # ------------------------------------------------------------------ #
     # 群状态懒创建
@@ -160,6 +163,8 @@ class SocialScheduler:
             "inertia": InertiaManager(self._config_getter),
             # v0.2 等待窗口（回复后收集同触发用户连续消息；None=未开窗）
             "wait_window": None,
+            # v0.2.5 回复关键词缓存（按目标用户+TTL，bot 回复后提取，run_batch 中匹配加分）
+            "reply_keyword_cache": None,
         }
         self._groups[group_id] = g
         return g
@@ -579,6 +584,12 @@ class SocialScheduler:
 
             interest = self._interest_mgr.get()
 
+            # v0.2.5 提前读取回复关键词缓存（集成点 1 与集成点 2 共用）
+            rk_cache = g.get("reply_keyword_cache")
+            rk_enabled = bool(cfg.get("reply_keyword_enabled", True))
+            # 关键词触发标志位（集成点 2 命中时置 True，供回复后清除与疲劳档位选择）
+            keyword_triggered = False
+
             # 6. 个人跟踪快通道
             personal_triggered = False
             personal_users: set[str] = set()
@@ -594,8 +605,37 @@ class SocialScheduler:
                             g["tracker"].remove(entry.user_id)
                             break  # 一次批次最多一个个人触发
                         else:
-                            # 不相关 -> 累计计数
-                            g["tracker"].bump_irrelevant(entry.user_id)
+                            # v0.2.5 集成点 2：向量相似度不足时，转用关键词匹配作为强信号
+                            keyword_match_for_track = 0.0
+                            if (
+                                rk_enabled
+                                and rk_cache is not None
+                                and rk_cache.is_valid_for(entry.user_id, now)
+                            ):
+                                try:
+                                    track_user_text = " ".join(
+                                        m.text
+                                        for m in msgs
+                                        if m.user_id == entry.user_id
+                                    )
+                                    keyword_match_for_track = (
+                                        ReplyKeywordManager.match_score(
+                                            track_user_text, rk_cache.keywords
+                                        )
+                                    )
+                                except Exception:
+                                    keyword_match_for_track = 0.0
+                                if keyword_match_for_track >= float(
+                                    cfg.get("reply_keyword_min_score_to_trigger", 0.5)
+                                ):
+                                    personal_triggered = True
+                                    personal_users.add(entry.user_id)
+                                    keyword_triggered = True
+                                    g["tracker"].remove(entry.user_id)
+                                    break  # 一次批次最多一个个人触发
+                            # 关键词未触发 -> 累计不相关计数
+                            if not keyword_triggered:
+                                g["tracker"].bump_irrelevant(entry.user_id)
 
             # 清理超时/连续不相关跟踪条目
             try:
@@ -756,6 +796,44 @@ class SocialScheduler:
                     inertia_multiplier=inertia_mult,
                 )
 
+            # 8.7 v0.2.5 集成点 1：回复关键词匹配加分（融合 final_score 之后、triggered 判定之前）
+            keyword_match_score = 0.0
+            keyword_added_score = 0.0
+            if rk_enabled and rk_cache is not None:
+                # 找出本批中属于"最后交互对象"（target_user_id）的消息
+                target_msgs = [m for m in msgs if m.user_id == rk_cache.target_user_id]
+                if target_msgs and rk_cache.is_valid_for(rk_cache.target_user_id, now):
+                    try:
+                        user_text = " ".join(m.text for m in target_msgs)
+                        keyword_match_score = ReplyKeywordManager.match_score(
+                            user_text, rk_cache.keywords
+                        )
+                        keyword_added_score = keyword_match_score * float(
+                            cfg.get("reply_keyword_boost_factor", 0.25)
+                        )
+                        fusion.final_score += keyword_added_score
+                        # 连续低分清除：得分低于阈值时计数 +1，达 2 次清除缓存
+                        if keyword_match_score < float(
+                            cfg.get("reply_keyword_early_clear_low_score", 0.1)
+                        ):
+                            rk_cache.low_score_streak += 1
+                            if rk_cache.low_score_streak >= 2:
+                                g["reply_keyword_cache"] = None
+                        # dry_run 日志：记录关键词、匹配得分、叠加后 final_score
+                        self._log(
+                            "debug",
+                            f"[ProSocial] run_batch: reply_keyword group={group_id} "
+                            f"target={rk_cache.target_user_id} "
+                            f"keywords={list(rk_cache.keywords.keys())} "
+                            f"match={keyword_match_score:.3f} added={keyword_added_score:.3f} "
+                            f"final={fusion.final_score:.3f} thr={fusion.threshold:.3f}",
+                        )
+                    except Exception as e:
+                        self._log(
+                            "warning",
+                            f"[ProSocial] run_batch: reply_keyword 加分失败 group={group_id}: {e}",
+                        )
+
             # 9. 反感屏蔽
             suppressed_reason = ""
             if (
@@ -841,6 +919,8 @@ class SocialScheduler:
                 fatigue_level=fatigue_level_now,
                 fatigue_value=float(self._fatigue.snapshot(now)["value"]),
                 channel=channel,
+                keyword_match_score=float(keyword_match_score),
+                keyword_added_score=float(keyword_added_score),
             )
             self._decision_log.add(d)
             try:
@@ -878,6 +958,10 @@ class SocialScheduler:
                     # v0.2: reply_type 区分 active（批处理触发）/ track（个人跟踪），
                     # is_proactive=True（scheduler 主动决策发起，非被动接话）
                     reply_type = "track" if personal_triggered else "active"
+                    # v0.2.5 集成点 3：因关键词触发（集成点 2）的回复清除关键词缓存，防重复
+                    # 注：on_bot_sent 会基于新回复重建缓存；此处清除是防止 on_bot_sent 失败时旧缓存残留
+                    if keyword_triggered:
+                        g["reply_keyword_cache"] = None
                     await self.on_bot_sent(
                         group_id=group_id,
                         text=reply,
@@ -995,6 +1079,36 @@ class SocialScheduler:
                         "warning",
                         f"[ProSocial] on_bot_sent: inertia.on_reply 失败: {e}",
                     )
+
+            # 7. v0.2.5 回复关键词提取（防重时跳过，避免重复提取；jieba 不可用仅警告一次）
+            # on_bot_sent 是 after_message_sent 钩子和 run_batch 主动发送的统一入口，
+            # 在此处提取保证被动 @ 回复和主动唤醒回复都能为下一轮提供关键词缓存。
+            if not is_duplicate and bool(cfg.get("reply_keyword_enabled", True)):
+                if not ReplyKeywordManager.available():
+                    if not self._rk_unavailable_warned:
+                        self._log(
+                            "warning",
+                            "[ProSocial] reply_keyword: jieba 未安装，"
+                            "基于回复分词的连续对话匹配已禁用（pip install jieba 启用）",
+                        )
+                        self._rk_unavailable_warned = True
+                else:
+                    try:
+                        # target_user_id: 取最近一位非 bot 发言者（与 tracker 建候选逻辑一致）
+                        speakers = g["context"].recent_speakers(1)
+                        target_uid = speakers[0][0] if speakers else ""
+                        if target_uid:
+                            g["reply_keyword_cache"] = ReplyKeywordManager.extract(
+                                text=text,
+                                target_user_id=target_uid,
+                                now=ts,
+                                cfg=cfg,
+                            )
+                    except Exception as e:
+                        self._log(
+                            "warning",
+                            f"[ProSocial] on_bot_sent: reply_keyword 提取失败 group={group_id}: {e}",
+                        )
 
             # 6. 安排瞥眼任务（glance 类型不再调度瞥眼，防级联；回放期间不瞥眼）
             if (

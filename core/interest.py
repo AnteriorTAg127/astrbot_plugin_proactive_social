@@ -519,8 +519,7 @@ class InterestManager:
                 level=it.level,
                 topic=it.topic,
                 examples=[
-                    ex
-                    for ex in it.examples
+                    ex for ex in it.examples
                     if (it.level.value, ex) not in rejected_examples
                 ],
                 weight=it.weight,
