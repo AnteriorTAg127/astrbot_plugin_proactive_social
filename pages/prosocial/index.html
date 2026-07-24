@@ -770,7 +770,7 @@
     <header>
       <div class="brand">
         <div class="logo">PS</div>
-        <h1>主动社交<span class="sub">任务控制台 v0.3.7</span></h1>
+        <h1>主动社交<span class="sub">任务控制台 v0.3.8</span></h1>
       </div>
       <span class="meta" id="lastRefresh">未刷新</span>
       <span id="errBanner"></span>
@@ -1903,6 +1903,38 @@
       function closeModal() {
         document.getElementById("modalOverlay").classList.remove("show");
       }
+      // v0.3.8：自定义确认弹窗（替代 window.confirm，iframe sandbox 环境下 confirm 被静默阻止）
+      function confirmModal(title, msg, onConfirm) {
+        var body = '<div style="margin-bottom:16px;font-size:13px;line-height:1.6;">' + escapeHtml(msg) + '</div>'
+          + '<div style="display:flex;justify-content:flex-end;gap:8px;">'
+          + '<button class="btn ghost" id="confirmCancel">取消</button>'
+          + '<button class="btn" id="confirmOk" style="background:var(--ok);color:#fff;">确认</button>'
+          + '</div>';
+        showModal(title, body);
+        var cancelBtn = document.getElementById("confirmCancel");
+        var okBtn = document.getElementById("confirmOk");
+        var handleOk = function() {
+          cleanup();
+          closeModal();
+          if (typeof onConfirm === "function") onConfirm();
+        };
+        var handleCancel = function() {
+          cleanup();
+          closeModal();
+        };
+        var handleEsc = function(e) {
+          if (e.key === "Escape") handleCancel();
+        };
+        var cleanup = function() {
+          if (cancelBtn) cancelBtn.removeEventListener("click", handleCancel);
+          if (okBtn) okBtn.removeEventListener("click", handleOk);
+          document.removeEventListener("keydown", handleEsc);
+        };
+        if (cancelBtn) cancelBtn.addEventListener("click", handleCancel);
+        if (okBtn) okBtn.addEventListener("click", handleOk);
+        document.addEventListener("keydown", handleEsc);
+        if (okBtn) okBtn.focus();
+      }
 
       // ============ LLM 诊断调参（F3 / v0.2.9 T7.1-T7.5 增强）============
       // _lastTuneSuggestion 缓存最近一次 analyze 的三段建议供 apply 使用：
@@ -2667,17 +2699,18 @@
 	          if (btn) { btn._disabled = false; btn.disabled = false; }
 	        });
 	      }
-	      // v0.3.6：恢复已过滤项到 active 列表
-	      function restoreInterest(kind, label, text) {
+	      // v0.3.6：恢复已过滤项到 active 列表（v0.3.8：confirm→confirmModal，修复 iframe sandbox 下 confirm 被静默阻止）
+      function restoreInterest(kind, label, text) {
 	        if (!bridge) return;
-	        if (!confirm("确认恢复该项到 active 列表？")) return;
-	        var body = { action: "restore", kind: kind, text: text };
-	        if (kind === "example") body.label = label;
-	        callApi(bridge.apiPost("prosocial/interests", body)).then(function () {
-	          toast("已恢复", "ok");
-	          loadInterests();   // 恢复后刷新（rejected + active 同步更新）
-	        }).catch(function (e) {
-	          toast("恢复失败: " + e.message, "err");
+	        confirmModal("确认恢复", "确认恢复该项到 active 列表？", function () {
+	          var body = { action: "restore", kind: kind, text: text };
+	          if (kind === "example") body.label = label;
+	          callApi(bridge.apiPost("prosocial/interests", body)).then(function () {
+	            toast("已恢复", "ok");
+	            loadInterests();   // 恢复后刷新（rejected + active 同步更新）
+	          }).catch(function (e) {
+	            toast("恢复失败: " + e.message, "err");
+	          });
 	        });
 	      }
 	      // F2: add interest item
@@ -3023,13 +3056,15 @@
       }
       function clearTuneHistory() {
         if (!bridge) return;
-        if (!confirm("确认清空所有调参历史？此操作不可恢复。")) return;
-        // bridge 无 apiDelete，用 POST action=clear 别名（后端 DELETE + POST 双注册）
-        callApi(bridge.apiPost("prosocial/tune_history", { action: "clear" })).then(function () {
-          toast("已清空", "ok");
-          loadTuneHistory();
-        }).catch(function (e) {
-          toast("清空失败: " + e.message, "err");
+        // v0.3.8：confirm→confirmModal（iframe sandbox 下 confirm 被静默阻止）
+        confirmModal("确认清空", "确认清空所有调参历史？此操作不可恢复。", function () {
+          // bridge 无 apiDelete，用 POST action=clear 别名（后端 DELETE + POST 双注册）
+          callApi(bridge.apiPost("prosocial/tune_history", { action: "clear" })).then(function () {
+            toast("已清空", "ok");
+            loadTuneHistory();
+          }).catch(function (e) {
+            toast("清空失败: " + e.message, "err");
+          });
         });
       }
 

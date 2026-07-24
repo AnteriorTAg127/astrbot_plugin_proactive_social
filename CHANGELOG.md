@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.8] - 2026-07-24
+
+### Fixed
+- **已过滤项恢复按钮点不动**（`pages/prosocial/index.html`）：根因是 `restoreInterest()` 和 `clearTuneHistory()` 使用了 `window.confirm()`，而 AstrBot 插件页面在 iframe/sandbox 环境中加载时 `confirm()` 被静默阻止（返回 false），导致函数在 `if (!confirm(...)) return` 处提前退出，按钮点击无任何反应。修复：新增 `confirmModal(title, msg, onConfirm)` 自定义模态框函数（复用 `showModal`/`closeModal` 的 DOM 结构，带确认/取消按钮 + Esc 关闭 + 事件清理），替换两处 `confirm()` 调用。与 `rejectInterest`（无需 confirm，正常工作）行为对齐。
+
+### Changed
+- 新增 `confirmModal(title, msg, onConfirm)` 函数：基于 `showModal` 的自定义确认弹窗，支持确认/取消按钮 + Esc 关闭 + 事件清理
+- `restoreInterest` 中 `confirm()` → `confirmModal()`（回调式，非阻塞）
+- `clearTuneHistory` 中 `confirm()` → `confirmModal()`（回调式，非阻塞）
+- 插件版本 v0.3.7 → v0.3.8
+
+### Notes
+- 542 既有测试零回归（纯前端修复，无 Python 代码变更）
+- `rejectInterest` 不受影响（原本就没有 `confirm()` 调用，用户反馈"删除关键词正常"印证了这一点）
+- `confirmModal` 复用既有 `showModal`/`closeModal` 机制，无需新增 DOM 结构
+
 ## [0.3.7] - 2026-07-24
 
 ### Added
