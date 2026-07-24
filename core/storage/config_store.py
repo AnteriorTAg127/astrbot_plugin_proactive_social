@@ -96,6 +96,8 @@ class ConfigStore:
         "poll_jitter": 120,
         "monitoring_duration": 120,
         "group_cooldown": 180,
+        # v0.3.7：主动消息最小间隔（秒），防止短时间内反复触发感兴趣话题
+        "proactive_min_interval": 180,
         # --- 瞥一眼 ---
         "glance_enable": True,
         "glance_group_count": 3,
@@ -197,6 +199,7 @@ class ConfigStore:
         "poll_jitter": (int, 0, 86400),
         "monitoring_duration": (int, 1, 86400),
         "group_cooldown": (int, 0, 86400),
+        "proactive_min_interval": (int, 0, 86400),
         "glance_enable": (bool, None, None),
         "glance_group_count": (int, 1, 50),
         "glance_min_score": (float, 0.0, 1.0),

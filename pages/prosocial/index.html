@@ -770,7 +770,7 @@
     <header>
       <div class="brand">
         <div class="logo">PS</div>
-        <h1>主动社交<span class="sub">任务控制台 v0.3.6</span></h1>
+        <h1>主动社交<span class="sub">任务控制台 v0.3.7</span></h1>
       </div>
       <span class="meta" id="lastRefresh">未刷新</span>
       <span id="errBanner"></span>
@@ -1100,7 +1100,7 @@
         personal_track_timeout: 30, track_irrelevant_msgs: 3,
         embedding_rate_limit_per_min: 30, buffer_max_size: 200, topic_turn_keywords: ["说正事", "别聊了", "换个话题", "停"],
         schedule: [{ start: "09:00", end: "12:00" }, { start: "14:00", end: "18:00" }, { start: "20:00", end: "23:00" }],
-        schedule_jitter_minutes: 30, poll_interval: 300, poll_jitter: 120, monitoring_duration: 120, group_cooldown: 180,
+        schedule_jitter_minutes: 30, poll_interval: 300, poll_jitter: 120, monitoring_duration: 120, group_cooldown: 180, proactive_min_interval: 180,
         glance_enable: true, glance_group_count: 3, glance_min_score: 0.85, hot_group_msg_limit: 30, silent_group_minutes: 10,
         replay_speed: 1.0,
         enable_rule_channel: true, enable_vector_channel: true, fusion_weight_rule: 0.4,
@@ -1195,6 +1195,7 @@
             { key: "poll_jitter", label: "轮询抖动(秒)", type: "int", min: 0, max: 86400, hint: "轮询周期随机 ±秒" },
             { key: "monitoring_duration", label: "监听周期(秒)", type: "int", min: 1, max: 86400, hint: "单群监听周期，到期或触发一次回复后退出" },
             { key: "group_cooldown", label: "群冷却(秒)", type: "int", min: 0, max: 86400, hint: "监听退出后此群进入冷却期" },
+            { key: "proactive_min_interval", label: "主动消息最小间隔(秒)", type: "int", min: 0, max: 86400, hint: "v0.3.7：距上次主动消息不足此秒数则抑制触发（防止话痨）" },
           ]
         },
         {

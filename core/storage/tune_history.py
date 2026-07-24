@@ -160,7 +160,11 @@ class TuneHistoryStore:
             return 0
 
     async def get_stats(self) -> dict:
-        """返回调参历史汇总统计。"""
+        """返回调参历史汇总统计。
+
+        v0.3.7：apply_count 改为统计 ``applied=1`` 的记录数（不再依赖 action="apply"），
+        因为 apply 现在更新最近一条 analyze 记录的 applied 字段而非新增记录。
+        """
         try:
             db = await self._ensure_db()
             async with db.execute("SELECT COUNT(*) FROM tune_history") as cursor:
@@ -170,7 +174,7 @@ class TuneHistoryStore:
             ) as cursor:
                 analyze_count = (await cursor.fetchone())[0]
             async with db.execute(
-                "SELECT COUNT(*) FROM tune_history WHERE action = ?", ("apply",)
+                "SELECT COUNT(*) FROM tune_history WHERE applied = 1"
             ) as cursor:
                 apply_count = (await cursor.fetchone())[0]
             async with db.execute("SELECT MAX(timestamp) FROM tune_history") as cursor:
@@ -189,6 +193,40 @@ class TuneHistoryStore:
                 "apply_count": 0,
                 "last_timestamp": None,
             }
+
+    async def mark_applied(self, source: str) -> bool:
+        """v0.3.7：标记最近一条未应用的 analyze 记录为已应用。
+
+        查找最近一条 ``action="analyze" AND applied=0 AND source=相同`` 的记录，
+        更新其 ``applied=1``。返回 True 表示找到并更新，False 表示没找到。
+
+        用于 apply 路径避免重复记录：analyze 已记录建议，apply 时只需标记为已应用，
+        不再新增 action="apply" 记录，避免同一建议在历史中显示两次。
+        """
+        try:
+            db = await self._ensure_db()
+            async with db.execute(
+                """
+                SELECT id FROM tune_history
+                WHERE action = 'analyze' AND applied = 0 AND source = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+                """,
+                (source,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return False
+            record_id = row[0]
+            await db.execute(
+                "UPDATE tune_history SET applied = 1 WHERE id = ?",
+                (record_id,),
+            )
+            await db.commit()
+            return True
+        except Exception as e:
+            print(f"[tune_history] mark_applied 失败: {e}", file=sys.stderr)
+            return False
 
     async def close(self) -> None:
         """关闭数据库连接（插件 terminate 时调用）。"""

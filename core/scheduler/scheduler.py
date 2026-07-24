@@ -48,10 +48,13 @@ from .replay import ReplayEngine
 _EMBED_FAIL_THRESHOLD = 3
 # 嵌入降级恢复重试间隔（秒）
 _EMBED_DEGRADED_RECOVER_SEC = 300.0
-# msg_timestamps deque 上限（约 60 秒高频或 100 条）
-_MSG_TS_MAX = 100
+# msg_timestamps deque 上限（v0.3.7：100→500，覆盖高频群 5 分钟消息量，
+# 避免 maxlen 不足导致 60 秒窗口统计少算）
+_MSG_TS_MAX = 500
 # cooldown_window deque 上限（防内存增长）
-_COOLDOWN_WIN_MAX = 200
+_COOLDOWN_WIN_MAX = 500
+# v0.3.7：cooldown_ratio 时间窗口（秒），仅统计此窗口内的消息计算 bot 占比
+_COOLDOWN_TIME_WINDOW = 300.0
 
 
 class SocialScheduler(BatchPipelineMixin, BotEventsMixin, AutotuneStatsMixin):
@@ -174,6 +177,8 @@ class SocialScheduler(BatchPipelineMixin, BotEventsMixin, AutotuneStatsMixin):
             "quota": SendQuota(),
             # v0.3.5 F1：短批次合并尝试次数（达 max_attempts 后强制评估）
             "short_batch_attempts": 0,
+            # v0.3.7：上次主动消息发送时间戳（用于 proactive_min_interval 冷却）
+            "last_proactive_ts": 0.0,
         }
         # v0.2.8 从缓存恢复自适应阈值状态（start() 预加载的 KV 数据）
         if self._adaptive_state_cache is not None:
@@ -759,11 +764,27 @@ class SocialScheduler(BatchPipelineMixin, BotEventsMixin, AutotuneStatsMixin):
             return False
 
     def _cooldown_ratio(self, g: dict, cfg: dict) -> float:
-        """最近 cooldown_messages 条消息窗口内 bot 占比（0~1）。"""
+        """v0.3.7：时间窗口内 bot 消息占比（0~1）。
+
+        取最近 ``_COOLDOWN_TIME_WINDOW``（300 秒）内的消息，计算 bot 占比。
+        旧逻辑取最后 N 条消息（不考虑时间），冷群中会跨越数小时导致误判。
+        若时间窗口内消息数 < cooldown_messages，补充取最后 N 条兜底
+        （避免冷群窗口内无消息时返回 0.0 丢失信号）。
+        """
         window: deque = g["cooldown_window"]
         n = int(cfg.get("cooldown_messages", 4))
         if n <= 0 or not window:
             return 0.0
+        now = time.time()
+        # 时间窗口过滤：仅统计最近 _COOLDOWN_TIME_WINDOW 秒内的消息
+        time_filtered = [
+            (ts, is_bot) for ts, is_bot in window
+            if (now - ts) <= _COOLDOWN_TIME_WINDOW
+        ]
+        if time_filtered:
+            bot_count = sum(1 for _ts, is_bot in time_filtered if is_bot)
+            return bot_count / len(time_filtered)
+        # 时间窗口内无消息（群很冷）：退化为取最后 N 条兜底
         items = list(window)[-n:]
         if not items:
             return 0.0

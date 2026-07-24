@@ -310,6 +310,8 @@ def default_config() -> dict:
         "poll_jitter": 120,
         "monitoring_duration": 120,
         "group_cooldown": 180,
+        # v0.3.7：测试环境禁用主动消息最小间隔（避免破坏连续触发断言）
+        "proactive_min_interval": 0,
         "glance_enable": True,
         "glance_group_count": 3,
         "glance_min_score": 0.85,

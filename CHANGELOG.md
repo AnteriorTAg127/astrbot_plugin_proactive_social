@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.3.7] - 2026-07-24
+
+### Added
+- **主动消息最小间隔冷却**（`core/scheduler/batch_pipeline.py` + `core/storage/config_store.py`）：新增 `proactive_min_interval` 配置项（默认 180 秒），距上次主动消息不足此秒数则抑制触发（`suppressed_reason="min_interval"`），防止短时间内反复触发感兴趣话题导致话痨。群状态新增 `last_proactive_ts` 字段，在 `_dispatch_proactive` 发送成功后更新。配置为 0 表示禁用此冷却。测试环境默认禁用（conftest `proactive_min_interval=0`，与 `batch_min_text_length=0` 同模式）。
+- **LLM 调参 prompt 扩展引导参数**（`core/plugin/autotune.py`）：分析要求从 8 点扩展到 12 点，新增：①惯性强度（after_reply_probability/probability_duration/proactive_temp_boost/proactive_boost_duration）；②瞥一眼机制（glance_enable/glance_group_count/glance_min_score）；③规则通道（rule_question_threshold/rule_context_threshold/fusion_weight_rule）；④冷却与间隔（cooldown_messages/proactive_min_interval/group_cooldown）。疲劳维度补充引导 fatigue_cost_track/glance/recovery_rate/high/medium_modifier/suppress_enabled。抑制分布维度新增 min_interval 占比分析。
+- 12 项 v0.3.7 单元测试（Bug A 去重 4 / Bug B mark_applied 3 / get_stats 1 / proactive_min_interval 2 / cooldown_ratio 2）
+
+### Fixed
+- **Bug A LLM 关键词 object + 去重**（`core/plugin/autotune.py` `_apply_keywords_patch`）：LLM 输出的 `keywords_patch.add`/`remove` 项结构不规范导致问题。修复：①text 字段强制 str 转换（dict/list 转 repr，防止 [object Object]）；②add/remove 交叉去重（同一 (kind, text) 同时出现时优先 remove）；③add 内部按 (kind, text) 去重；④非 dict 项静默跳过。新增 `_normalize()` 内部函数统一处理结构校验与去重。
+- **Bug B 手动强制调用重复显示**（`core/storage/tune_history.py` + `core/plugin/autotune.py`）：analyze 和 apply 都调 `tune_history.record()` 导致同一建议显示两次（一次未应用 + 一次应用）。修复：新增 `TuneHistoryStore.mark_applied(source)` 方法，apply 时查找最近一条 `action="analyze" AND applied=0 AND source=相同` 的记录更新为 `applied=1`，不再新增记录。若找不到对应 analyze 记录（跨重启/手动 apply），才新增一条 apply 记录。`get_stats` 的 `apply_count` 改为统计 `applied=1` 的记录数（不再依赖 `action="apply"`）。
+- **群冷热统计不准**（`core/scheduler/scheduler.py`）：①`msg_timestamps` deque maxlen 从 100 增到 500（覆盖高频群 5 分钟消息量，避免 maxlen 不足导致 60 秒窗口统计少算）；②`cooldown_window` deque maxlen 从 200 增到 500；③`_cooldown_ratio` 从"最后 N 条消息"改为"时间窗口内消息"（`_COOLDOWN_TIME_WINDOW=300` 秒），旧逻辑在冷群中会跨越数小时导致误判。时间窗口内无消息时退化为取最后 N 条兜底。
+
+### Changed
+- `config_store.py DEFAULT_CONFIG` 新增 `proactive_min_interval`(180) + 校验器 `(int, 0, 86400)`
+- `scheduler.py _get_group` 群状态新增 `last_proactive_ts` 字段（默认 0.0）
+- `batch_pipeline.py run_batch` 在配额检查后新增 proactive_min_interval 冷却检查
+- `batch_pipeline.py _dispatch_proactive` 注入路径和旧路径发送成功后更新 `g["last_proactive_ts"] = now`
+- `tune_history.py get_stats` apply_count 统计逻辑从 `action="apply"` 改为 `applied=1`
+- `tune_history.py` 新增 `mark_applied(source)` 方法
+- `autotune.py llm_autotune` apply 路径：先调 `mark_applied(source)`，返回 False 时才新增 apply 记录
+- `autotune.py _build_tune_prompt` 分析要求从 8 点扩展到 12 点
+- `conftest.py default_config` 新增 `proactive_min_interval: 0`（测试环境禁用）
+- 前端 `pages/prosocial/index.html` 配置面板「调度与轮询」分组新增 proactive_min_interval 控件 + 版本号 v0.3.6 → v0.3.7
+- 插件版本 v0.3.6 → v0.3.7
+
+### Notes
+- 530 既有测试零回归（新增 12 项 v0.3.7 测试，全量 542/542 通过）
+- proactive_min_interval 在测试环境默认禁用（=0），生产默认 180 秒由 ConfigStore.DEFAULT_CONFIG 提供
+- mark_applied 按 source 匹配，手动触发（source="manual"）和自动触发（source="auto"）互不干扰
+- _cooldown_ratio 时间窗口 300 秒与 _COOLDOWN_TIME_WINDOW 常量一致，冷群退化为最后 N 条兜底
+
 ## [0.3.6] - 2026-07-24
 
 ### Added

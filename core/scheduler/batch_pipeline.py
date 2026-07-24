@@ -513,6 +513,18 @@ class BatchPipelineMixin:
                     triggered = False
                     personal_triggered = False
 
+            # v0.3.7：主动消息最小间隔冷却
+            # 距上次主动消息不足 proactive_min_interval 秒 → suppressed_reason="min_interval"
+            # 防止短时间内反复触发感兴趣话题导致话痨
+            if triggered or personal_triggered:
+                min_interval = int(cfg.get("proactive_min_interval", 180))
+                if min_interval > 0:
+                    last_proactive = g.get("last_proactive_ts", 0.0)
+                    if last_proactive > 0 and (now - last_proactive) < min_interval:
+                        suppressed_reason = "min_interval"
+                        triggered = False
+                        personal_triggered = False
+
             # 12. DRY_RUN（含回放：replay_active 视同 dry_run）
             is_dry = self._replay_active or (
                 self._dry_run_override
@@ -763,6 +775,8 @@ class BatchPipelineMixin:
                 await self._metrics.incr("proactive_sends", self._kv_set)
                 await self._metrics.incr("proactive_triggered", self._kv_set)
                 g["quota"].record(now)
+                # v0.3.7：记录主动消息发送时间戳，用于 proactive_min_interval 冷却
+                g["last_proactive_ts"] = now
                 return True
             # 注入失败 → 降级走旧路径
 
@@ -781,6 +795,8 @@ class BatchPipelineMixin:
         if ok:
             await self._metrics.incr("proactive_triggered", self._kv_set)
             g["quota"].record(now)
+            # v0.3.7：记录主动消息发送时间戳，用于 proactive_min_interval 冷却
+            g["last_proactive_ts"] = now
             if call_on_bot_sent:
                 try:
                     await self.on_bot_sent(

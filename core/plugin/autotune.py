@@ -256,18 +256,22 @@ class TuneMixin:
                     )
                 except Exception as e:
                     self._log("warning", f"启动后台 apply 任务失败: {e}")
-            # v0.3.6：apply 成功后记录调参历史（在清空缓存之前）
+            # v0.3.7：apply 时更新最近一条 analyze 记录的 applied=True（避免重复显示）
+            # 如果找不到对应的 analyze 记录（跨重启/手动 apply 缓存），才新增一条
             try:
-                await self._tune_history.record(
-                    action="apply",
-                    source=source,
-                    patch=filtered,
-                    keywords_patch=keywords_patch,
-                    persona_revision=persona_revision,
-                    analysis="",
-                    expected_effect="",
-                    applied=True,
-                )
+                marked = await self._tune_history.mark_applied(source)
+                if not marked:
+                    # 没有对应的 analyze 记录，新增一条 apply 记录
+                    await self._tune_history.record(
+                        action="apply",
+                        source=source,
+                        patch=filtered,
+                        keywords_patch=keywords_patch,
+                        persona_revision=persona_revision,
+                        analysis="",
+                        expected_effect="",
+                        applied=True,
+                    )
             except Exception as e:
                 self._log("warning", f"调参历史记录失败(apply): {e}")
             # 应用成功后清空缓存，避免重复 apply
@@ -363,14 +367,63 @@ class TuneMixin:
         kind ∈ ``example``|``high_keyword``|``hate_keyword``。
         调 ``interest_mgr.batch_update`` 批量内存操作 + 单次 ``_recompute_centroids``。
         完成后调 ``apply_rejected`` 兜底过滤。返回成功操作项数。
+
+        v0.3.7 安全加固：
+        - text 字段强制 str 转换（防止 LLM 输出 dict/list/number 导致 [object Object]）
+        - add/remove 交叉去重（同一 text 同时出现时优先 remove，不 add）
+        - add 内部按 (kind, text) 去重
+        - 无效项（非 dict / kind 非法 / text 空）静默跳过
         """
         if not isinstance(keywords_patch, dict):
             return 0
         embed_fn = self._embed_fn
         if embed_fn is None:
             return 0
-        adds = list(keywords_patch.get("add") or [])
-        removes = list(keywords_patch.get("remove") or [])
+        raw_adds = keywords_patch.get("add") or []
+        raw_removes = keywords_patch.get("remove") or []
+        if not isinstance(raw_adds, list):
+            raw_adds = []
+        if not isinstance(raw_removes, list):
+            raw_removes = []
+
+        valid_kinds = ("example", "high_keyword", "hate_keyword")
+
+        def _normalize(items: list) -> list[dict]:
+            """规范化每项：强制 text 为 str，过滤无效项，内部去重。"""
+            seen: set[tuple[str, str]] = set()
+            result: list[dict] = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                kind = item.get("kind")
+                if kind not in valid_kinds:
+                    continue
+                # text 强制 str：dict/list 转 repr，number 转 str，None 转 ""
+                raw_text = item.get("text", "")
+                if isinstance(raw_text, (dict, list)):
+                    text = str(raw_text)
+                elif raw_text is None:
+                    continue
+                else:
+                    text = str(raw_text)
+                text = text.strip()
+                if not text:
+                    continue
+                label = str(item.get("label", "") or "")
+                key = (kind, text)
+                if key in seen:
+                    continue
+                seen.add(key)
+                result.append({"kind": kind, "label": label, "text": text})
+            return result
+
+        adds = _normalize(raw_adds)
+        removes = _normalize(raw_removes)
+
+        # 交叉去重：同一 (kind, text) 同时在 add 和 remove 中 → 优先 remove，不 add
+        remove_keys = {(r["kind"], r["text"]) for r in removes}
+        adds = [a for a in adds if (a["kind"], a["text"]) not in remove_keys]
+
         if not adds and not removes:
             return 0
         try:
@@ -560,22 +613,45 @@ class TuneMixin:
             "# 分析要求\n\n"
             "请基于机器人完整画像做整体性调参建议：\n\n"
             "1. **触发率**：当前 triggered_rate 是否在健康区间？与用户风格偏好的目标区间对比。\n"
-            "   偏高→收紧阈值/降权重；偏低→放宽。注意区分 below_threshold 和 quota 抑制。\n\n"
+            "   偏高→收紧阈值/降权重；偏低→放宽。注意区分 below_threshold 和 quota/min_interval 抑制。\n\n"
             "2. **得分分布**：score_mean vs threshold_mean 的差距是否合理？\n"
             "   差距过大（分数远低于阈值）→ 阈值偏高或权重不足；\n"
             "   差距过小（分数接近阈值）→ 触发过于敏感，波动大。\n\n"
             "3. **五因子均衡**：factors_mean 中 s_int/s_topic/s_resp/c_cooldown/p_silence\n"
             "   是否有某因子主导？主导因子意味着该通道权重失衡，应调低对应 w_* 或调高其他。\n\n"
             "4. **抑制分布**：suppressed_hist 中 quota 占比高→频率上限过低或阈值过低导致\n"
-            "   频繁触发后被配额拦截；below_threshold 占比高→阈值过高。\n\n"
+            "   频繁触发后被配额拦截；below_threshold 占比高→阈值过高；\n"
+            "   min_interval 占比高→proactive_min_interval 过长或阈值过低导致频繁尝试被间隔拦截。\n\n"
             "5. **疲劳状态**：fatigue_value_mean 是否接近 fatigue_limit？\n"
-            "   接近→疲劳消耗过快或恢复太慢，机器人会逐渐沉默。\n\n"
+            "   接近→疲劳消耗过快或恢复太慢，机器人会逐渐沉默。\n"
+            "   可调：fatigue_cost_active/passive/track/glance（消耗）、\n"
+            "   fatigue_recovery_rate（恢复速率）、fatigue_high/medium_modifier（倍率）、\n"
+            "   fatigue_suppress_enabled（抑制开关）。\n\n"
             "6. **兴趣数据**：兴趣 items 是否合理？是否需要增删关键词？\n"
             "   人设文本是否需要调整？（仅必要时输出 persona_revision）\n\n"
             "7. **对话状态**：conversation_state_summary 中 avg_appropriateness 是否合理？\n"
             "   is_argument/is_monologue 占比高→机器人应更克制（modifier>1）；\n"
             "   has_question/bot_turn 占比高→机器人可更活跃（modifier<1）。\n\n"
             "8. **风格对齐**：建议方向必须与用户回复风格偏好一致。\n\n"
+            "9. **惯性强度**：after_reply_probability（回复后继续活跃概率，默认0.7）、\n"
+            "   probability_duration（持续时长秒，默认30）、proactive_temp_boost（话题提升，默认0.5）、\n"
+            "   proactive_boost_duration（话题提升持续秒，默认60）。\n"
+            "   机器人太粘人→降 after_reply_probability/proactive_temp_boost；\n"
+            "   机器人接话断裂感强→升 after_reply_probability。\n\n"
+            "10. **瞥一眼机制**：glance_enable（开关）、glance_group_count（候选群数，默认3）、\n"
+            "    glance_min_score（最低触发分数，默认0.85）。\n"
+            "    瞥一眼太频繁→升 glance_min_score 或降 glance_group_count；\n"
+            "    瞥一眼从不触发→降 glance_min_score。\n\n"
+            "11. **规则通道**：rule_question_threshold（疑问信号阈值，默认65）、\n"
+            "    rule_context_threshold（上下文唤醒阈值，默认50）、\n"
+            "    fusion_weight_rule（规则通道融合权重，默认0.4）。\n"
+            "    规则误触发多→升阈值或降 fusion_weight_rule；\n"
+            "    规则从不触发→降阈值或升 fusion_weight_rule。\n\n"
+            "12. **冷却与间隔**：cooldown_messages（冷却窗口消息条数，默认4）、\n"
+            "    proactive_min_interval（主动消息最小间隔秒，默认180）、\n"
+            "    group_cooldown（主循环监听后群冷却秒，默认180）。\n"
+            "    机器人话痨→升 proactive_min_interval；\n"
+            "    机器人反应迟钝→降 proactive_min_interval（但不宜低于60秒）。\n\n"
             "# 输出格式\n\n"
             "仅输出严格 JSON（不要 ```json 标记），含三段：\n"
             "{\n"
