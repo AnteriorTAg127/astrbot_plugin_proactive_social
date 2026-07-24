@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from ..common.emoji_filter import strip_emoji
 from ..common.models import LogicalMessage
 
 # 短消息判定阈值：≤5 字
@@ -45,7 +46,8 @@ class GroupBuffer:
         ts: float,
         group_id: str,
         is_wake: bool = False,
-    ) -> None:
+        filter_emoji: bool = False,
+    ) -> bool:
         """追加消息。同用户连续短消息自动拼接为一条逻辑消息（PRD F2）。
 
         拼接条件：上一条存在、user_id 相同、上一条与本条均为短消息
@@ -55,7 +57,16 @@ class GroupBuffer:
         否则：append 新 LogicalMessage。
 
         缓冲超 max_size：丢弃最旧并 warning（PRD §6.6 消息风暴）。
+
+        v0.3.5 F2：``filter_emoji=True`` 时先调 ``strip_emoji`` 移除 emoji 字符；
+        过滤后为空（纯 emoji 消息）则不入缓冲，返回 ``False``。返回值 ``True`` 表示
+        已入缓冲（含合并入已有条目），``False`` 表示被过滤未入。
         """
+        # v0.3.5 F2：emoji 过滤——若启用则移除 emoji 字符；过滤后为空则不入缓冲
+        if filter_emoji:
+            text = strip_emoji(text)
+            if not text.strip():
+                return False  # 纯 emoji 消息，不入缓冲
         merged = False
         if self._items:
             last = self._items[-1]
@@ -95,12 +106,21 @@ class GroupBuffer:
             except Exception:
                 # 日志失败不应影响缓冲主流程
                 pass
+        return True
 
     def flush(self) -> list[LogicalMessage]:
         """取出全部并清空。"""
         items = self._items
         self._items = []
         return items
+
+    def prepend(self, msgs: list[LogicalMessage]) -> None:
+        """把 msgs 插入 _items 头部（v0.3.5 F1 短批次合并回填用）。
+
+        用于 run_batch 检测到短批次时把已 flush 的消息回填到缓冲区头部，
+        等待下一次批次定时器触发时与新增消息合并评估。
+        """
+        self._items[:0] = list(msgs)
 
     def pending_text(self) -> str:
         """当前缓冲拼接预览：所有 items 的 text 用空格拼接。"""

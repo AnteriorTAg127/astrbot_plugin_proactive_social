@@ -368,6 +368,20 @@ def default_config() -> dict:
         "autotune_min_decisions": 30,
         "autotune_cooldown_hours": 3.0,
         "autotune_max_per_day": 4,
+        # v0.3.5 短批次合并 / emoji 过滤 / 强制触发 / 对话状态
+        # 注：batch_min_text_length 测试默认 0（禁用短批次合并）——既有测试构造的
+        # 批次文本多为 ≤5 字短消息（"符玄"/"hi" 等），若启用会触发回填导致评估
+        # 不发生、决策日志为空，破坏 477 既有测试。生产环境默认 12 由
+        # ConfigStore.DEFAULT_CONFIG 提供。
+        "batch_min_text_length": 0,
+        "batch_short_merge_max_attempts": 2,
+        "emoji_filter_enabled": True,
+        "autotune_force_rate_threshold": 0.50,
+        "autotune_force_cooldown_hours": 1.0,
+        "conversation_state_enabled": True,
+        "conversation_state_window": 10,
+        "conversation_state_monologue_ratio": 0.6,
+        "conversation_state_argument_msg_len": 20,
     }
 
 

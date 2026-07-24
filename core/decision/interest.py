@@ -648,6 +648,106 @@ class InterestManager:
             self.log("warning", f"[ProSocial] interest.py: remove_item 持久化失败: {e}")
         return True, ""
 
+    async def batch_update(
+        self,
+        adds: list[dict],
+        removes: list[dict],
+        embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
+    ) -> tuple[int, str]:
+        """v0.3.5 F5：批量增删关键词/示例句子，最后只重算一次质心。
+
+        adds/removes 结构同 _apply_keywords_patch：[{kind, label, text}, ...]
+        kind ∈ example|high_keyword|hate_keyword。
+        与逐次 add_item/remove_item 区别：内存批量操作 + 单次 _recompute_centroids
+        + 单次 _save_npz，从 N 次嵌入 API 调用降到 1 次。
+
+        返回 (成功操作项数, 错误描述)。
+        """
+        if self._data is None:
+            return 0, "尚未生成兴趣数据"
+
+        valid_kinds = ("example", "high_keyword", "hate_keyword")
+        count = 0
+
+        # 批量 add（仅内存操作，不重算质心）
+        for item in adds:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("kind")
+            label = str(item.get("label", "") or "")
+            text = str(item.get("text", "") or "").strip()
+            if kind not in valid_kinds or not text:
+                continue
+            if kind == "example":
+                level_map = {lv.value: lv for lv in InterestLevel}
+                lv = level_map.get(label)
+                if lv is None:
+                    continue
+                target_items = [it for it in self._data.items if it.level == lv]
+                if not target_items:
+                    continue
+                if text not in target_items[0].examples:
+                    target_items[0].examples.append(text)
+                    count += 1
+            elif kind == "high_keyword":
+                if text not in self._data.high_interest_keywords:
+                    self._data.high_interest_keywords.append(text)
+                    count += 1
+            elif kind == "hate_keyword":
+                if text not in self._data.hate_keywords:
+                    self._data.hate_keywords.append(text)
+                    count += 1
+
+        # 批量 remove（仅内存操作）
+        for item in removes:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("kind")
+            label = str(item.get("label", "") or "")
+            text = str(item.get("text", "") or "")
+            if kind not in valid_kinds or not text:
+                continue
+            if kind == "example":
+                level_map = {lv.value: lv for lv in InterestLevel}
+                lv = level_map.get(label)
+                if lv is None:
+                    continue
+                for it in self._data.items:
+                    if it.level == lv and text in it.examples:
+                        it.examples.remove(text)
+                        count += 1
+                        break
+            elif kind == "high_keyword":
+                if text in self._data.high_interest_keywords:
+                    self._data.high_interest_keywords.remove(text)
+                    count += 1
+            elif kind == "hate_keyword":
+                if text in self._data.hate_keywords:
+                    self._data.hate_keywords.remove(text)
+                    count += 1
+
+        if count == 0:
+            return 0, ""
+
+        # 单次重算质心 + 单次持久化
+        try:
+            centroids, dim = await self._recompute_centroids(self._data.items, embed_fn)
+            self._data.centroids = centroids
+            self._data.dim = dim
+        except Exception as e:
+            self.log(
+                "warning", f"[ProSocial] interest.py: batch_update 重算质心失败: {e}"
+            )
+            return count, f"重算质心失败: {e}"
+        try:
+            self._save_npz(self._data)
+        except Exception as e:
+            self.log(
+                "warning", f"[ProSocial] interest.py: batch_update 持久化失败: {e}"
+            )
+            return count, f"持久化失败: {e}"
+        return count, ""
+
     # ------------------------------------------------------------------ #
     # 内部辅助方法
     # ------------------------------------------------------------------ #

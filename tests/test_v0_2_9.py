@@ -366,6 +366,8 @@ def _make_mock_plugin(
             self.remove_item = AsyncMock(return_value=(True, ""))
             self.apply_rejected = AsyncMock(return_value=(True, ""))
             self.get_rejected = MagicMock(return_value={"examples": [], "keywords": []})
+            # v0.3.5 F5：batch_update 替代逐次 add/remove，单次重算质心
+            self.batch_update = AsyncMock(return_value=(0, ""))
 
         def export_view(self) -> dict:
             if self._data is None:
@@ -573,7 +575,11 @@ def test_tune_rate_limiter_state_restore_roundtrip():
     a.record(1000.0)
     a.record(2000.0)
     s = a.state()
-    assert s == {"history": [1000.0, 2000.0], "last_call": 2000.0}
+    assert s == {
+        "history": [1000.0, 2000.0],
+        "last_call": 2000.0,
+        "force_history": [],
+    }
 
     b = TuneRateLimiter()
     b.restore(s)
@@ -834,7 +840,7 @@ def test_llm_autotune_apply_persona_triggers_regenerate():
 
 
 def test_llm_autotune_apply_keywords_patch_add():
-    """apply keywords_patch.add → 调 interest_mgr.add_item + apply_rejected。"""
+    """apply keywords_patch.add → 后台调 interest_mgr.batch_update + apply_rejected。"""
     cfg = _default_cfg_for_main()
     cfg["autotune_cooldown_hours"] = 0.0
     cfg["autotune_max_per_day"] = 0
@@ -852,19 +858,29 @@ def test_llm_autotune_apply_keywords_patch_add():
         ],
         "remove": [],
     }
+    # v0.3.5 F5：batch_update 返回 (2, "")
+    plugin.interest_mgr.batch_update.return_value = (2, "")
 
-    result = asyncio.run(plugin.llm_autotune("apply", keywords_patch=kp))
+    # v0.3.5 F5：apply 异步化——keywords_patch 走后台 task，需 await sleep 让 create_task 完成
+    async def _run():
+        result = await plugin.llm_autotune("apply", keywords_patch=kp)
+        await asyncio.sleep(0.05)
+        return result
+
+    result = asyncio.run(_run())
     assert result["ok"] is True
     assert result["applied"] is True
-    assert result["keywords_updated"] == 2
-    # add_item 被调用 2 次
-    assert plugin.interest_mgr.add_item.call_count == 2
+    # v0.3.5 F5：apply 立即返回，keywords_updated=0，background=true
+    assert result["keywords_updated"] == 0
+    assert result["background"] is True
+    # batch_update 被调用 1 次（add 2 项 + remove 0 项合并一次）
+    assert plugin.interest_mgr.batch_update.call_count == 1
     # apply_rejected 被调用（兜底重算质心）
     assert plugin.interest_mgr.apply_rejected.called
 
 
 def test_llm_autotune_apply_keywords_patch_remove():
-    """apply keywords_patch.remove → 调 interest_mgr.remove_item。"""
+    """apply keywords_patch.remove → 后台调 interest_mgr.batch_update。"""
     cfg = _default_cfg_for_main()
     cfg["autotune_cooldown_hours"] = 0.0
     cfg["autotune_max_per_day"] = 0
@@ -881,11 +897,19 @@ def test_llm_autotune_apply_keywords_patch_remove():
             {"kind": "hate_keyword", "label": "hate", "text": "广告"},
         ],
     }
+    # v0.3.5 F5：batch_update 返回 (1, "")
+    plugin.interest_mgr.batch_update.return_value = (1, "")
 
-    result = asyncio.run(plugin.llm_autotune("apply", keywords_patch=kp))
+    async def _run():
+        result = await plugin.llm_autotune("apply", keywords_patch=kp)
+        await asyncio.sleep(0.05)
+        return result
+
+    result = asyncio.run(_run())
     assert result["ok"] is True
-    assert result["keywords_updated"] == 1
-    assert plugin.interest_mgr.remove_item.call_count == 1
+    assert result["keywords_updated"] == 0
+    assert result["background"] is True
+    assert plugin.interest_mgr.batch_update.call_count == 1
 
 
 def test_llm_autotune_apply_persona_revision_merges_into_persona_text():
@@ -1114,8 +1138,8 @@ def test_scheduler_autotune_triggers_on_high_rate(
     async def _run():
         trigger_calls: list[dict] = []
 
-        async def trigger_fn():
-            trigger_calls.append({"called": True})
+        async def trigger_fn(force: bool = False):
+            trigger_calls.append({"called": True, "force": force})
             return {"ok": True}
 
         sched = _make_scheduler(
@@ -1175,8 +1199,8 @@ def test_scheduler_autotune_triggers_on_low_rate(
     async def _run():
         trigger_calls: list[dict] = []
 
-        async def trigger_fn():
-            trigger_calls.append({"called": True})
+        async def trigger_fn(force: bool = False):
+            trigger_calls.append({"called": True, "force": force})
             return {"ok": True}
 
         sched = _make_scheduler(
@@ -1224,8 +1248,8 @@ def test_scheduler_autotune_skipped_when_samples_insufficient(
     async def _run():
         trigger_calls: list[dict] = []
 
-        async def trigger_fn():
-            trigger_calls.append({"called": True})
+        async def trigger_fn(force: bool = False):
+            trigger_calls.append({"called": True, "force": force})
             return {"ok": True}
 
         sched = _make_scheduler(

@@ -121,6 +121,8 @@ def _deserialize_decision(raw: Any) -> BatchDecision | None:
             embedding_degraded=bool(raw.get("embedding_degraded", False)),
             # v0.2.8 自适应阈值倍率
             adaptive_mult=float(raw.get("adaptive_mult", 1.0)),
+            # v0.3.5 对话状态模块阈值修正倍率
+            conversation_state_mod=float(raw.get("conversation_state_mod", 1.0)),
         )
     except (TypeError, ValueError):
         return None

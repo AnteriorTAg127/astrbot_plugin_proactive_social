@@ -32,25 +32,39 @@ class AutotuneStatsMixin:
     async def _maybe_autotune(
         self, group_id: str, adaptive: AdaptiveThreshold, now: float
     ) -> None:
-        """触发率越界时自动触发 LLM 调参（v0.2.9 F3）。
+        """v0.3.5 F4：触发率越界时自动触发 LLM 调参。
 
-        条件：窗口样本数 ≥ autotune_min_decisions 且 window_rate > autotune_safe_rate_hi
-        或 < autotune_safe_rate_lo。后台 asyncio.create_task 调 autotune_trigger_fn。
-        速率限制由 main.py 的 _autotune_trigger 内部判断（返回 ok:False,error:rate_limited）。
+        两条触发路径：
+        - 强制触发：rate > autotune_force_rate_threshold 且 allow_force 通过 →
+          _autotune_trigger(force=True)，record_force 防抖（默认 1h 冷却）
+        - 普通越界触发：rate > autotune_safe_rate_hi 或 < autotune_safe_rate_lo →
+          _autotune_trigger(force=True) 修复限流 bug（原 force=False 被 rate_limited 拒绝）
         """
         cfg = self._config_getter()
         min_decisions = int(cfg.get("autotune_min_decisions", 30))
         hi = float(cfg.get("autotune_safe_rate_hi", 0.30))
         lo = float(cfg.get("autotune_safe_rate_lo", 0.05))
+        force_threshold = float(cfg.get("autotune_force_rate_threshold", 0.50))
         samples = adaptive.window_size()
         rate = adaptive.window_rate()
         if samples < min_decisions:
             # 样本不足，跳过
             return
+
+        # 优先判定强制触发（更高阈值，独立冷却防抖）
+        if rate > force_threshold:
+            # force 触发受独立冷却防抖（force_history）
+            # force_cooldown 在 main 侧 _autotune_trigger 内读取并执行 allow_force 判断
+            direction = "force_high_rate"
+            asyncio.create_task(self._autotune_trigger(force=True))  # noqa
+            self._log_autotune_event(group_id, direction, rate, samples)
+            return
+
+        # 普通越界触发（修复限流 bug：force=True 跳过 allow）
         if rate > hi or rate < lo:
             direction = "high_rate" if rate > hi else "low_rate"
             # 后台触发，不阻塞 run_batch
-            asyncio.create_task(self._autotune_trigger())  # noqa
+            asyncio.create_task(self._autotune_trigger(force=True))  # noqa
             self._log_autotune_event(group_id, direction, rate, samples)
 
     def _log_autotune_event(
@@ -82,6 +96,8 @@ class AutotuneStatsMixin:
         config_subset = self._tune_config_subset()
         # v0.2.9 adaptive_summary：每群自适应阈值状态（含 mult/window_rate/samples）
         adaptive_summary = self._build_adaptive_summary()
+        # v0.3.5 F6：对话状态摘要供 LLM 诊断
+        conversation_state_summary = self._build_conversation_state_summary()
 
         if not decisions:
             return {
@@ -105,6 +121,7 @@ class AutotuneStatsMixin:
                 "fatigue_value_mean": 0.0,
                 "config": config_subset,
                 "adaptive_summary": adaptive_summary,
+                "conversation_state_summary": conversation_state_summary,
             }
 
         total = len(decisions)
@@ -155,6 +172,7 @@ class AutotuneStatsMixin:
             "fatigue_value_mean": statistics.mean(fatigue_values),
             "config": config_subset,
             "adaptive_summary": adaptive_summary,
+            "conversation_state_summary": conversation_state_summary,
         }
 
     def _build_adaptive_summary(self) -> list[dict]:
@@ -181,6 +199,76 @@ class AutotuneStatsMixin:
                 # 单群异常跳过，不阻塞整体摘要
                 continue
         return summary
+
+    def _build_conversation_state_summary(self) -> dict:
+        """v0.3.5 F6：构建对话状态摘要供 LLM 诊断。
+
+        遍历每群最近 N 条消息，统计平均 appropriateness 和各状态占比。
+        """
+        try:
+            from ..decision.conversation_state import ConversationStateEvaluator
+
+            cfg = self._config_getter()
+            if not bool(cfg.get("conversation_state_enabled", True)):
+                return {"enabled": False}
+            window = int(cfg.get("conversation_state_window", 10))
+            summaries: list[dict] = []
+            all_approps: list[float] = []
+            all_has_q = all_mono = all_arg = all_casual = all_bot_turn = 0
+            total = 0
+            for gid, g in self._groups.items():
+                try:
+                    recent = g["context"]._messages[-window:]
+                    if not recent:
+                        continue
+                    state = ConversationStateEvaluator.evaluate(
+                        msgs=recent,
+                        bot_user_id="__bot__",
+                        cfg=cfg,
+                        now=__import__("time").time(),
+                    )
+                    summaries.append(
+                        {
+                            "group_id": gid,
+                            "appropriateness": round(state.appropriateness, 3),
+                            "has_question": state.has_question,
+                            "is_monologue": state.is_monologue,
+                            "is_argument": state.is_argument,
+                            "is_casual_chat": state.is_casual_chat,
+                            "bot_turn": state.bot_turn,
+                            "modifier": round(state.modifier, 3),
+                        }
+                    )
+                    all_approps.append(state.appropriateness)
+                    if state.has_question:
+                        all_has_q += 1
+                    if state.is_monologue:
+                        all_mono += 1
+                    if state.is_argument:
+                        all_arg += 1
+                    if state.is_casual_chat:
+                        all_casual += 1
+                    if state.bot_turn:
+                        all_bot_turn += 1
+                    total += 1
+                except Exception:
+                    continue
+            if total == 0:
+                return {"enabled": True, "groups": [], "avg_appropriateness": 0.0}
+            return {
+                "enabled": True,
+                "groups": summaries,
+                "avg_appropriateness": round(sum(all_approps) / len(all_approps), 3)
+                if all_approps
+                else 0.0,
+                "has_question_ratio": round(all_has_q / total, 3),
+                "is_monologue_ratio": round(all_mono / total, 3),
+                "is_argument_ratio": round(all_arg / total, 3),
+                "is_casual_chat_ratio": round(all_casual / total, 3),
+                "bot_turn_ratio": round(all_bot_turn / total, 3),
+            }
+        except Exception:
+            return {"enabled": True, "error": "summary_build_failed"}
 
     def _tune_config_subset(self) -> dict:
         """返回全量配置快照供 LLM 诊断时对照当前参数（v0.2.9）。

@@ -220,7 +220,7 @@ class TuneMixin:
                     "error": msg,
                     "rate_limit": self._rate_limit_status(now, cooldown, max_per_day),
                 }
-            # v0.2.9 F2：人设/数量变更触发后台兴趣重建（不阻塞 apply 响应）
+            # v0.3.5 F5：人设/数量变更 + 关键词 patch 放后台执行，API 立即返回
             regenerate_needed = any(
                 k in filtered
                 for k in (
@@ -230,15 +230,17 @@ class TuneMixin:
                     "interest_keyword_count",
                 )
             )
-            if regenerate_needed:
+            background_pending = bool(regenerate_needed or keywords_patch)
+            if background_pending:
                 try:
-                    asyncio.create_task(self._bg_regenerate_persona())
+                    asyncio.create_task(
+                        self._bg_apply_keywords_and_regenerate(
+                            keywords_patch=keywords_patch if keywords_patch else None,
+                            regenerate_needed=regenerate_needed,
+                        )
+                    )
                 except Exception as e:
-                    self._log("warning", f"启动兴趣重建后台任务失败: {e}")
-            # v0.2.9 F2：应用 keywords_patch（add/remove + apply_rejected 重算质心）
-            keywords_updated = 0
-            if keywords_patch:
-                keywords_updated = await self._apply_keywords_patch(keywords_patch)
+                    self._log("warning", f"启动后台 apply 任务失败: {e}")
             # 应用成功后清空缓存，避免重复 apply
             self._last_tune_suggestion = None
             return {
@@ -247,7 +249,8 @@ class TuneMixin:
                 "updated": len(filtered),
                 "dropped": dropped,
                 "regenerate": regenerate_needed,
-                "keywords_updated": keywords_updated,
+                "keywords_updated": 0,  # 后台执行中，实际数稍后可查 interests API
+                "background": background_pending,
                 "rate_limit": self._rate_limit_status(now, cooldown, max_per_day),
             }
 
@@ -299,65 +302,88 @@ class TuneMixin:
         except Exception as exc:
             self._log("warning", f"人设变更后兴趣重建失败: {exc}")
 
+    async def _bg_apply_keywords_and_regenerate(
+        self,
+        *,
+        keywords_patch: dict | None,
+        regenerate_needed: bool,
+    ) -> None:
+        """v0.3.5 F5：后台执行关键词 patch + 人设 regenerate（不阻塞 apply 响应）。
+
+        复用 ``_apply_keywords_patch``（已改为 batch_update 单次重算）与
+        ``_bg_regenerate_persona``。
+        """
+        try:
+            if keywords_patch:
+                try:
+                    await self._apply_keywords_patch(keywords_patch)
+                except Exception as e:
+                    self._log("warning", f"后台 _apply_keywords_patch 失败: {e}")
+            if regenerate_needed:
+                try:
+                    await self._bg_regenerate_persona()
+                except Exception as e:
+                    self._log("warning", f"后台 _bg_regenerate_persona 失败: {e}")
+        except Exception as e:
+            self._log("warning", f"_bg_apply_keywords_and_regenerate 失败: {e}")
+
     async def _apply_keywords_patch(self, keywords_patch: dict) -> int:
-        """v0.2.9 F2：应用关键词增删 patch。
+        """v0.3.5 F5：应用关键词增删 patch（批量重算，从 N 次嵌入 API 降到 1 次）。
 
         结构：``{"add": [{kind, label, text}], "remove": [...]}``，
-        kind ∈ ``example``|``high_keyword``|``hate_keyword``，label 为 ``core``/``general``/
-        ``marginal``/``hate``（example 用）。循环调 ``add_item`` / ``remove_item``（每调用即
-        重算质心），完成后调 ``apply_rejected`` 兜底。返回成功操作项数。
+        kind ∈ ``example``|``high_keyword``|``hate_keyword``。
+        调 ``interest_mgr.batch_update`` 批量内存操作 + 单次 ``_recompute_centroids``。
+        完成后调 ``apply_rejected`` 兜底过滤。返回成功操作项数。
         """
         if not isinstance(keywords_patch, dict):
             return 0
         embed_fn = self._embed_fn
         if embed_fn is None:
             return 0
-        valid_kinds = ("example", "high_keyword", "hate_keyword")
-        count = 0
-        for item in keywords_patch.get("add") or []:
-            if not isinstance(item, dict):
-                continue
-            kind = item.get("kind")
-            label = str(item.get("label", "") or "")
-            text = str(item.get("text", "") or "")
-            if kind not in valid_kinds or not text:
-                continue
-            try:
-                ok, _ = await self.interest_mgr.add_item(kind, label, text, embed_fn)
-                if ok:
-                    count += 1
-            except Exception as e:
-                self._log("warning", f"keywords_patch add 失败: {e}")
-        for item in keywords_patch.get("remove") or []:
-            if not isinstance(item, dict):
-                continue
-            kind = item.get("kind")
-            label = str(item.get("label", "") or "")
-            text = str(item.get("text", "") or "")
-            if kind not in valid_kinds or not text:
-                continue
-            try:
-                ok, _ = await self.interest_mgr.remove_item(kind, label, text, embed_fn)
-                if ok:
-                    count += 1
-            except Exception as e:
-                self._log("warning", f"keywords_patch remove 失败: {e}")
-        # 重算质心确保 rejected 列表生效（add/remove 已各自重算，此步兜底过滤）
+        adds = list(keywords_patch.get("add") or [])
+        removes = list(keywords_patch.get("remove") or [])
+        if not adds and not removes:
+            return 0
+        try:
+            count, msg = await self.interest_mgr.batch_update(adds, removes, embed_fn)
+            if msg:
+                self._log("warning", f"keywords_patch batch_update 部分失败: {msg}")
+        except Exception as e:
+            self._log("warning", f"keywords_patch batch_update 异常: {e}")
+            return 0
+        # 重算质心确保 rejected 列表生效（batch_update 已重算，此步兜底过滤）
         try:
             await self.interest_mgr.apply_rejected(embed_fn)
         except Exception as e:
             self._log("warning", f"keywords_patch apply_rejected 失败: {e}")
         return count
 
-    async def _autotune_trigger(self) -> dict:
-        """v0.2.9 F3：scheduler 自动触发回调。
+    async def _autotune_trigger(self, force: bool = False) -> dict:
+        """v0.3.5 F4：scheduler 自动触发回调。
 
-        调 ``llm_autotune("analyze", force=False)``；若 ``autotune_auto_apply=true`` 则成功后
-        调 ``llm_autotune("apply", force=True)``（force 跳过限速——analyze 已计数）。
-        失败/被限写日志，不抛异常（scheduler 后台 create_task 调用）。
+        force=False（默认）：走普通 allow 速率限制（用于手动 /prosocial tune 触发场景）。
+        force=True：跳过 allow 速率限制，但仍 record（用于自动触发修复限流 bug）。
+        强制触发额外受 force_history 独立冷却防抖（autotune_force_cooldown_hours）。
+
+        调 ``llm_autotune("analyze", force=force)``；若 ``autotune_auto_apply=true`` 则成功后
+        调 ``llm_autotune("apply", force=True)``。失败/被限写日志，不抛异常。
         """
         try:
-            result = await self.llm_autotune("analyze", force=False)
+            # v0.3.5 F4：强制触发路径——独立冷却防抖
+            if force:
+                now = time.time()
+                cfg = self._config_getter()
+                force_cooldown = float(cfg.get("autotune_force_cooldown_hours", 1.0))
+                if not self._tune_limiter.allow_force(now, force_cooldown):
+                    self._log(
+                        "info",
+                        f"[ProSocial] autotune_force_skipped: force_cooldown ({force_cooldown}h)",
+                    )
+                    return {"ok": False, "error": "force_cooldown"}
+                # 允许强制触发，记录 force_history
+                self._tune_limiter.record_force(now)
+
+            result = await self.llm_autotune("analyze", force=force)
             if result.get("ok") and self._config_getter().get(
                 "autotune_auto_apply", False
             ):
@@ -370,6 +396,10 @@ class TuneMixin:
             if not result.get("ok"):
                 if result.get("error") == "rate_limited":
                     self._log("info", "[ProSocial] autotune_skipped: rate_limited")
+                elif result.get("error") == "force_cooldown":
+                    self._log(
+                        "info", "[ProSocial] autotune_force_skipped: force_cooldown"
+                    )
                 else:
                     self._log(
                         "warning",
@@ -481,6 +511,8 @@ class TuneMixin:
             f"- group_whitelist: {full_cfg.get('group_whitelist', [])}\n\n"
             "# 自适应阈值状态（每群 mult/window_rate/samples）\n\n"
             f"{json.dumps(adaptive_summary, ensure_ascii=False, indent=2)}\n\n"
+            "# 对话状态摘要（v0.3.5 F6）\n\n"
+            f"{json.dumps(stats.get('conversation_state_summary', {}), ensure_ascii=False, indent=2)}\n\n"
             "# 近期决策数据统计（最近 200 条）\n\n"
             f"{json.dumps(stats, ensure_ascii=False, indent=2)}\n\n"
             "# 当前全量配置（除 DENYLIST 外均可改）\n\n"
@@ -509,7 +541,10 @@ class TuneMixin:
             "   接近→疲劳消耗过快或恢复太慢，机器人会逐渐沉默。\n\n"
             "6. **兴趣数据**：兴趣 items 是否合理？是否需要增删关键词？\n"
             "   人设文本是否需要调整？（仅必要时输出 persona_revision）\n\n"
-            "7. **风格对齐**：建议方向必须与用户回复风格偏好一致。\n\n"
+            "7. **对话状态**：conversation_state_summary 中 avg_appropriateness 是否合理？\n"
+            "   is_argument/is_monologue 占比高→机器人应更克制（modifier>1）；\n"
+            "   has_question/bot_turn 占比高→机器人可更活跃（modifier<1）。\n\n"
+            "8. **风格对齐**：建议方向必须与用户回复风格偏好一致。\n\n"
             "# 输出格式\n\n"
             "仅输出严格 JSON（不要 ```json 标记），含三段：\n"
             "{\n"

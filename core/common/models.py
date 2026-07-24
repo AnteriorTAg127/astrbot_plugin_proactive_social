@@ -179,6 +179,9 @@ class BatchDecision:
     embedding_degraded: bool = False  # 本次决策时 Embedding 是否降级
     # --- v0.2.8 自适应阈值倍率（带默认值，向后兼容）---
     adaptive_mult: float = 1.0  # 自适应阈值控制器当前倍率
+    conversation_state_mod: float = (
+        1.0  # v0.3.5 对话状态模块阈值修正倍率（1.0=无影响，<1.0 放宽，>1.0 收紧）
+    )
 
 
 @dataclass

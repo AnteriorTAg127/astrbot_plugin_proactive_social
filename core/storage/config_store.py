@@ -159,6 +159,16 @@ class ConfigStore:
         "autotune_min_decisions": 30,
         "autotune_cooldown_hours": 3.0,
         "autotune_max_per_day": 4,
+        # --- v0.3.5 短批次合并 / emoji 过滤 / 强制触发 / 对话状态 ---
+        "batch_min_text_length": 12,
+        "batch_short_merge_max_attempts": 2,
+        "emoji_filter_enabled": True,
+        "autotune_force_rate_threshold": 0.50,
+        "autotune_force_cooldown_hours": 1.0,
+        "conversation_state_enabled": True,
+        "conversation_state_window": 10,
+        "conversation_state_monologue_ratio": 0.6,
+        "conversation_state_argument_msg_len": 20,
     }
 
     # 类型/范围校验表：(类型, 下限, 上限)；None 表示不校验该侧。
@@ -242,6 +252,16 @@ class ConfigStore:
         "autotune_min_decisions": (int, 5, 200),
         "autotune_cooldown_hours": (float, 0.0, 72.0),
         "autotune_max_per_day": (int, 0, 100),
+        # v0.3.5 短批次合并 / emoji 过滤 / 强制触发 / 对话状态
+        "batch_min_text_length": (int, 1, 200),
+        "batch_short_merge_max_attempts": (int, 1, 5),
+        "emoji_filter_enabled": (bool, None, None),
+        "autotune_force_rate_threshold": (float, 0.1, 1.0),
+        "autotune_force_cooldown_hours": (float, 0.0, 24.0),
+        "conversation_state_enabled": (bool, None, None),
+        "conversation_state_window": (int, 3, 50),
+        "conversation_state_monologue_ratio": (float, 0.3, 1.0),
+        "conversation_state_argument_msg_len": (int, 5, 200),
     }
 
     # list 类型键（校验时 isinstance list）；schedule 单独特判 dict 列表

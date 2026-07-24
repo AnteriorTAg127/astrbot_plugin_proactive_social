@@ -23,6 +23,7 @@ class TuneRateLimiter:
     def __init__(self) -> None:
         self._history: deque[float] = deque()  # 24h 内调用时间戳
         self._last_call: float | None = None
+        self._force_history: deque[float] = deque()  # 强制触发时间戳历史
 
     def allow(
         self, now: float, cooldown_hours: float, max_per_day: int
@@ -46,14 +47,35 @@ class TuneRateLimiter:
             return False, "daily_cap"
         return True, ""
 
+    def allow_force(self, now: float, cooldown_hours: float) -> bool:
+        """检查是否允许强制触发（独立于普通 allow 的冷却）。
+
+        cooldown_hours=0 不限冷却（不推荐，会导致抖动）。
+        先清 _force_history 中超过 cooldown_hours*3600 的旧记录再判断。
+        """
+        if cooldown_hours <= 0:
+            return True
+        cutoff = now - cooldown_hours * self.HOUR_SECONDS
+        while self._force_history and self._force_history[0] < cutoff:
+            self._force_history.popleft()
+        return len(self._force_history) == 0
+
     def record(self, now: float) -> None:
         """记录一次成功调用。"""
         self._history.append(now)
         self._last_call = now
 
+    def record_force(self, now: float) -> None:
+        """记录一次强制触发调用（独立于普通 record）。"""
+        self._force_history.append(now)
+
     def state(self) -> dict:
-        """导出可持久化状态：{"history": [...], "last_call": float|None}。"""
-        return {"history": list(self._history), "last_call": self._last_call}
+        """导出可持久化状态。"""
+        return {
+            "history": list(self._history),
+            "last_call": self._last_call,
+            "force_history": list(self._force_history),
+        }
 
     def restore(self, state: dict) -> None:
         """从持久化状态恢复（容错：非 dict/非法值静默忽略）。"""
@@ -71,3 +93,10 @@ class TuneRateLimiter:
             self._last_call = None
         elif isinstance(last_call, (int, float)) and not isinstance(last_call, bool):
             self._last_call = float(last_call)
+        force_history = state.get("force_history")
+        if isinstance(force_history, list):
+            cleaned_force: list[float] = []
+            for t in force_history:
+                if isinstance(t, (int, float)) and not isinstance(t, bool):
+                    cleaned_force.append(float(t))
+            self._force_history = deque(cleaned_force)

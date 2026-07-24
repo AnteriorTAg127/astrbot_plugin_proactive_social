@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.5] - 2026-07-24
+
+### Added
+- **短批次合并**（F1，`core/scheduler/batch_pipeline.py`）：当批次文本过短（`< batch_min_text_length`，默认 12）且消息 ≤ 1 时，回填缓冲区等待下一次 `_schedule_batch` 触发时合并，最多合并 `batch_short_merge_max_attempts`（默认 2）次后强制评估，减少短消息噪声决策。成功评估后重置 `short_batch_attempts` 计数。
+- **Emoji 过滤**（F2，`core/common/emoji_filter.py` 新建）：`strip_emoji(text)` 纯函数按 Unicode 范围移除 emoji 字符；`is_pure_emoji(text)` 判定纯 emoji。`GroupBuffer.append` 与 `scheduler.on_message` 入缓冲前过滤，纯 emoji 消息不入缓冲，净化 embedding 向量质量。
+- **LLM 强制触发机制**（F4，`core/storage/tune_controller.py`）：`TuneRateLimiter` 新增 `_force_history` 独立冷却队列 + `allow_force(now, cooldown_hours)` / `record_force(now)` 方法。当窗口触发率 > `autotune_force_rate_threshold`（默认 0.50）时无视冷却期强制触发 LLM 调参，受 `autotune_force_cooldown_hours`（默认 1.0h）独立冷却防抖，避免短时间内反复强制触发。
+- **对话状态模块**（F6，`core/decision/conversation_state.py` 新建）：轻量级纯启发式对话状态评估器，零 LLM/embedding 调用。`ConversationStateEvaluator.evaluate` 从最近 N 条消息判定 5 维度状态：`has_question`（有人抛问）/ `is_monologue`（自言自语）/ `is_argument`（激烈争论）/ `is_casual_chat`（闲聊）/ `bot_turn`（轮到机器人说话），输出 `appropriateness` 综合适宜度与 `modifier` 阈值修正倍率（0.7 放宽 ~ 1.3 收紧），应用到 `eff_threshold`，将"期待度"从单纯的文本匹配扩展为多维信号，降低机械感。
+- **9 项新配置项**（全部非 null 默认）：`batch_min_text_length`(12) / `batch_short_merge_max_attempts`(2) / `emoji_filter_enabled`(true) / `autotune_force_rate_threshold`(0.50) / `autotune_force_cooldown_hours`(1.0) / `conversation_state_enabled`(true) / `conversation_state_window`(10) / `conversation_state_monologue_ratio`(0.6) / `conversation_state_argument_msg_len`(20)
+- 32 项 v0.3.5 单元测试（F1 短批次合并 3 / F2 emoji 过滤 4 / F4 限流修复+强制触发 5 / F5 apply 异步化+批量重算 3 / F6 对话状态 17）
+
+### Fixed
+- **兴趣关键词 CRUD kind 错误**（F3，`pages/prosocial/index.html`）：`renderInterests` 中关键词按钮 `data-kind` 由固定 `"keyword"` 改为按 level 渲染（core/general → `high_keyword`，hate → `hate_keyword`），修复 `{"ok":false,"error":"kind 必须是 example、high_keyword 或 hate_keyword"}` 报错。
+- **LLM 自动触发限流 bug**（F4，`core/scheduler/autotune_collector.py` + `core/plugin/autotune.py`）：原自动触发路径调 `llm_autotune("analyze", force=False)` 被 `TuneRateLimiter.allow()` 拒绝，导致"最需要修正时反而被限流"的设计反模式。改为 `force=True` 跳过 allow（仍 record 计入配额），强制触发额外受 `force_history` 独立冷却防抖。
+
+### Changed
+- **LLM apply 异步化 + 批量重算**（F5，`core/plugin/autotune.py` + `core/decision/interest.py`）：`InterestManager` 新增 `batch_update(adds, removes, embed_fn)` 方法，批量内存增删 + 单次 `_recompute_centroids` + 单次 `_save_npz`，从 N 次嵌入 API 调用降到 1 次。`_apply_keywords_patch` 重写调用 `batch_update`。`llm_autotune("apply")` 改造：`set_many` 同步生效后，关键词 patch + 人设 regenerate 放到 `asyncio.create_task` 后台执行，API 立即返回 `background:true`，不再阻塞响应。前端 `autotuneApply` 按钮点击立即禁用 + 文案"应用中…"，2 秒后恢复。
+- `collect_tune_stats` 新增 `conversation_state_summary` 字段：遍历每群最近 N 条消息统计平均 `appropriateness` 与各状态占比，供 LLM 诊断时参考。
+- `_build_tune_prompt` 注入 `conversation_state_summary`，分析要求新增第 7 点「对话状态」维度。
+- `BatchDecision` 新增 `conversation_state_mod` 字段（默认 1.0 向后兼容），`_deserialize_decision` 同步反序列化。
+- Dashboard 配置面板新增 2 个分组：「批次与输入过滤」（3 项）+「对话状态」（4 项），LLM 调参分组新增 2 项强制触发配置。
+- 插件版本 v0.3.1 → v0.3.5
+
+### Notes
+- 短批次合并在测试默认配置下禁用（`batch_min_text_length=0`），生产默认 12 由 `ConfigStore.DEFAULT_CONFIG` 提供，避免破坏既有测试的短消息批次断言
+- 对话状态模块评估异常时退化为 `modifier=1.0`，不影响主流程
+- F4 强制触发受 1h 独立冷却防抖，避免触发率持续高位时反复调用 LLM
+- 509 既有测试零回归（477 旧 + 32 新）
+
 ## [0.3.1] - 2026-07-24
 
 ### Changed

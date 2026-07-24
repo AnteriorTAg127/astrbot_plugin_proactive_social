@@ -518,6 +518,8 @@ def test_f12_batch_decision_embedding_degraded_on_null_emb():
                        "after_reply_probability": 0.7,
                        "interest_example_count": 3, "interest_keyword_count": 12,
                        "long_window_inject_proactive": True,
+                       # v0.3.5 短批次合并在本测试需禁用，否则 "符玄配队"(<12 字) 触发回填
+                       "batch_min_text_length": 0,
                        }
         from core.decision.interest import InterestManager
         interest_mgr = InterestManager(tmp, mock_log)

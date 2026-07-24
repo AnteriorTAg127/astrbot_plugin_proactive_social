@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..common.emoji_filter import strip_emoji
 from ..common.models import GroupState, LogicalMessage
 from ..decision.adaptive import AdaptiveThreshold, SendQuota
 from ..decision.fatigue import FatigueManager
@@ -171,6 +172,8 @@ class SocialScheduler(BatchPipelineMixin, BotEventsMixin, AutotuneStatsMixin):
             # v0.2.8 自适应阈值控制器 + 每群发送频率硬上限
             "adaptive": AdaptiveThreshold(),
             "quota": SendQuota(),
+            # v0.3.5 F1：短批次合并尝试次数（达 max_attempts 后强制评估）
+            "short_batch_attempts": 0,
         }
         # v0.2.8 从缓存恢复自适应阈值状态（start() 预加载的 KV 数据）
         if self._adaptive_state_cache is not None:
@@ -514,7 +517,23 @@ class SocialScheduler(BatchPipelineMixin, BotEventsMixin, AutotuneStatsMixin):
                     return
 
             # 8. 入缓冲区（v0.2 传入 is_wake 供批次级 mentions_bot 判定）
-            g["buffer"].append(user_id, nickname, text, ts, group_id, is_wake=is_wake)
+            # v0.3.5 F2：emoji 过滤——配置启用时在入缓冲前移除 emoji 字符
+            filter_emoji = bool(cfg.get("emoji_filter_enabled", True))
+            entry_text = text
+            if filter_emoji:
+                entry_text = strip_emoji(text)
+                if not entry_text.strip():
+                    # 纯 emoji 消息：不入缓冲（但仍已记录上下文窗口）
+                    return
+            g["buffer"].append(
+                user_id,
+                nickname,
+                entry_text,
+                ts,
+                group_id,
+                is_wake=is_wake,
+                filter_emoji=False,  # 已在此处过滤，append 内不再重复过滤
+            )
 
             # 9. 调度批次任务（若无活跃任务则创建）
             t = g.get("batch_task")

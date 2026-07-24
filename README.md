@@ -4,6 +4,11 @@
 
 ## 功能
 
+- **对话状态模块（v0.3.5）**：轻量级纯启发式对话状态评估器（零 LLM/embedding 调用），从群聊情绪氛围与对话角色多维度判断当前是否适合插话：has_question（有人抛问）/ bot_turn（轮到机器人说话）/ is_casual_chat（闲聊）/ is_monologue（自言自语）/ is_argument（激烈争论），输出 modifier 修正 eff_threshold（0.7 放宽 ~ 1.3 收紧），将"期待度"从单纯的文本匹配扩展为多维信号，降低机械感
+- **短批次合并（v0.3.5）**：批次文本过短（< batch_min_text_length）且消息 ≤ 1 时回填缓冲区等待下一次合并，最多合并 batch_short_merge_max_attempts 次后强制评估，减少短消息噪声决策
+- **Emoji 过滤（v0.3.5）**：入缓冲区前移除 Unicode emoji 字符，纯 emoji 消息不入缓冲，净化 embedding 向量质量
+- **LLM 强制触发机制（v0.3.5）**：窗口触发率 > autotune_force_rate_threshold（默认 0.50）时无视冷却期强制触发 LLM 调参，受 autotune_force_cooldown_hours（默认 1.0h）独立冷却防抖；修复自动触发路径被限流拒绝的 bug（force=True 跳过 allow 仍 record）
+- **LLM apply 异步化 + 批量重算（v0.3.5）**：InterestManager.batch_update 批量增删 + 单次重算质心（N 次嵌入 API → 1 次）；apply 响应立即返回（set_many 同步生效，关键词 patch + 人设 regenerate 后台执行），不再阻塞
 - **主动回复走消息管线（v0.2.8）**：主动回复注入 AstrBot 标准消息管线（合成 AstrBotMessage → handle_msg），追踪页自动显示完整事件与 LLM 调用记录，对话历史自动保存；on_llm_request 钩子注入接话风格提示（不污染历史）；关闭或异常时降级回直连 LLM 旧路径
 - **自适应阈值控制器（v0.2.8）**：每群按近期触发率自动收敛阈值倍率（5%-30% 触发率带），消除 embedding 尺度差异导致的调参敏感；mult 钳制 [0.5, 2.0]，状态持久化
 - **每群发送频率硬上限（v0.2.8）**：max_proactive_per_hour / max_proactive_per_day 超限后 suppressed_reason="quota"，调参失误的最终兜底，任何参数调崩都不会话痨
@@ -57,7 +62,9 @@
 
 - **基础**：人设、活跃时段、群模式、base_threshold、作息调度、示例句子数量、关键词数量
 - **管线与自适应（v0.2.8）**：reply_via_pipeline / adaptive_threshold_enabled / max_proactive_per_hour / max_proactive_per_day
-- **LLM 调参（v0.2.9）**：autotune_safe_rate_hi / autotune_safe_rate_lo / autotune_auto_trigger_enabled / autotune_auto_apply / autotune_min_decisions / autotune_cooldown_hours / autotune_max_per_day
+- **LLM 调参（v0.2.9 + v0.3.5）**：autotune_safe_rate_hi / autotune_safe_rate_lo / autotune_auto_trigger_enabled / autotune_auto_apply / autotune_min_decisions / autotune_cooldown_hours / autotune_max_per_day / autotune_force_rate_threshold / autotune_force_cooldown_hours
+- **批次与输入过滤（v0.3.5）**：batch_min_text_length / batch_short_merge_max_attempts / emoji_filter_enabled
+- **对话状态（v0.3.5）**：conversation_state_enabled / conversation_state_window / conversation_state_monologue_ratio / conversation_state_argument_msg_len
 - **双通道融合（v0.2）**：enable_rule_channel / enable_vector_channel / fusion_weight_rule / dynamic_fusion_enabled
 - **规则引擎（v0.2）**：强唤醒词 / 上下文唤醒词 / 疑问信号 / 屏蔽短语
 - **疲劳（v0.2）**：衰减率 / 上限 / 各类型消耗成本 / 高中疲劳阈值修正 / 抑制开关

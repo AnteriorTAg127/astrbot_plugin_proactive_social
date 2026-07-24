@@ -132,6 +132,26 @@ class BatchPipelineMixin:
             # F5: 空批次过滤——文本全为空白时跳过嵌入和评估
             if not batch_text.strip():
                 return
+
+            # v0.3.5 F1：短批次合并——batch_text 过短且消息 ≤ 1 时回填缓冲区等待下次合并
+            min_text_len = int(cfg.get("batch_min_text_length", 12))
+            max_attempts = int(cfg.get("batch_short_merge_max_attempts", 2))
+            attempts = g.get("short_batch_attempts", 0)
+            if (
+                len(batch_text) < min_text_len
+                and len(msgs) <= 1
+                and attempts < max_attempts
+            ):
+                # 回填缓冲区，等待下一次 _schedule_batch 触发时合并
+                g["buffer"].prepend(msgs)
+                g["short_batch_attempts"] = attempts + 1
+                self._log(
+                    "debug",
+                    f"[ProSocial] run_batch: 短批次合并回填 group={group_id} "
+                    f"len={len(batch_text)} attempts={attempts + 1}/{max_attempts}",
+                )
+                return
+
             batch_summary = batch_text[:80]
 
             # 4. 嵌入（限流）
@@ -433,6 +453,32 @@ class BatchPipelineMixin:
             else:
                 eff_threshold = fusion.threshold
 
+            # v0.3.5 F6：对话状态模块——根据群聊氛围修正 eff_threshold
+            conv_state_mod = 1.0
+            if bool(cfg.get("conversation_state_enabled", True)):
+                try:
+                    from ..decision.conversation_state import (
+                        ConversationStateEvaluator,
+                    )
+
+                    # 取最近 window 条消息（从 context._messages 取，含 bot 消息）
+                    recent_msgs = g["context"]._messages[
+                        -int(cfg.get("conversation_state_window", 10)) :
+                    ]
+                    conv_state = ConversationStateEvaluator.evaluate(
+                        msgs=recent_msgs,
+                        bot_user_id="__bot__",
+                        cfg=cfg,
+                        now=now,
+                    )
+                    conv_state_mod = conv_state.modifier
+                    eff_threshold *= conv_state.modifier
+                except Exception as e:
+                    self._log(
+                        "debug",
+                        f"[ProSocial] run_batch: 对话状态评估失败 group={group_id}: {e}",
+                    )
+
             # 11. 判定唤醒（v0.2 融合判定 + v0.2.8 自适应阈值）
             if suppressed_reason:
                 triggered = False
@@ -482,6 +528,9 @@ class BatchPipelineMixin:
                 suppressed_reason = "disabled"
                 triggered = False
 
+            # v0.3.5 F1：成功评估（无论是否触发）后重置短批次合并计数
+            g["short_batch_attempts"] = 0
+
             # 13. 构造决策日志并持久化（v0.2: score/threshold 取融合值，追加 6 字段）
             # channel: 双开 fusion / 仅A rule / 仅B vector
             channel = (
@@ -514,6 +563,7 @@ class BatchPipelineMixin:
                 embedding_degraded=(batch_emb is None),
                 # v0.2.8 自适应阈值倍率（F2a）
                 adaptive_mult=float(adaptive.multiplier()),
+                conversation_state_mod=float(conv_state_mod),
             )
             self._decision_log.add(d)
             try:
