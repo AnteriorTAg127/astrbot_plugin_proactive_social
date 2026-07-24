@@ -171,6 +171,13 @@ class ConfigStore:
         "conversation_state_window": 10,
         "conversation_state_monologue_ratio": 0.6,
         "conversation_state_argument_msg_len": 20,
+        # --- v0.3.8 @ 昵称清洗（避免污染 Embedding 向量）---
+        "strip_at_mention_enabled": True,
+        # --- v0.3.10 LLM 调参约束 / 历史归档 ---
+        "autotune_max_change_ratio": 0.3,
+        "autotune_max_params_per_tune": 5,
+        "autotune_two_phase_enabled": False,
+        "autotune_history_hide_days": 30,
     }
 
     # 类型/范围校验表：(类型, 下限, 上限)；None 表示不校验该侧。
@@ -265,6 +272,10 @@ class ConfigStore:
         "conversation_state_window": (int, 3, 50),
         "conversation_state_monologue_ratio": (float, 0.3, 1.0),
         "conversation_state_argument_msg_len": (int, 5, 200),
+        # v0.3.10 LLM 调参约束 / 历史归档
+        "autotune_max_change_ratio": (float, 0.0, 1.0),
+        "autotune_max_params_per_tune": (int, 3, 15),
+        "autotune_history_hide_days": (int, 1, 365),
     }
 
     # list 类型键（校验时 isinstance list）；schedule 单独特判 dict 列表

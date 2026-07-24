@@ -5,9 +5,10 @@
 - main.py 实现 `WebBridge` 鸭子类型接口（get_status / get_decisions / get_config_view /
   set_config_view / get_groups_view / set_groups_view / get_providers_view /
   get_interests_view / set_interests_view / get_tune_history_view /
-  clear_tune_history_view），并负责通过
+  clear_tune_history_view / approve_tune / reject_tune / restore_tune /
+  run_autotune_plan），并负责通过
   `context.register_web_api` 注册路由、把本模块返回的 `(status, json)` 封装为 HTTP 响应。
-- `build_handlers(bridge)` 返回 15 个 async handler，签名统一为
+- `build_handlers(bridge)` 返回 16 个 async handler，签名统一为
   `async (params: dict, body: dict | None) -> tuple[int, dict]`。
 - 统一响应格式：成功 `(200, {"ok": True, "data": ...})`；
   失败 `(400, {"ok": False, "error": "..."})`；内部异常 `(500, {"ok": False, "error": "..."})`。
@@ -32,7 +33,8 @@ class WebBridge:
     同步方法：get_status / get_decisions / get_config_view / get_groups_view /
               get_providers_view / get_interests_view
     异步方法：set_config_view / set_groups_view / set_interests_view（返回 (ok, error)）/
-              get_tune_history_view / clear_tune_history_view
+              get_tune_history_view / clear_tune_history_view /
+              approve_tune / reject_tune / restore_tune / run_autotune_plan（v0.3.10 T7）
     """
 
     def get_status(self) -> dict:  # pragma: no cover - 接口声明
@@ -72,18 +74,39 @@ class WebBridge:
         ...
 
     async def get_tune_history_view(
-        self, limit: int = 50, offset: int = 0
+        self, limit: int = 50, offset: int = 0,
+        *, status_filter: str | None = None,
+        include_archived: bool = False, hide_days: int | None = None,
     ) -> dict:  # pragma: no cover
-        """v0.3.6 F3：返回调参历史记录 + 统计摘要。
+        """v0.3.6 F3：返回调参历史记录 + 统计摘要（v0.3.10 扩展过滤参数）。
 
         返回 ``{records: [...], stats: {total, analyze_count, apply_count, last_timestamp}}``。
         records 按 timestamp DESC 排序，每条含 id/timestamp/action/source/patch/
-        keywords_patch/persona_revision/analysis/expected_effect/applied。
+        keywords_patch/persona_revision/analysis/expected_effect/applied + 8 个新字段
+        （original_values/pre_apply_values/applied_values/diagnosis/plan/status/
+        approved_by/error_msg）。
+
+        v0.3.10 新增关键字参数：
+        - ``status_filter``：按 status 字段过滤（None 不过滤）
+        - ``include_archived``：False 时隐藏 30 天前 non-pending 记录
+        - ``hide_days``：归档隐藏阈值（None 时不做时间过滤，兼容旧调用方）
         """
 
     async def clear_tune_history_view(self) -> tuple[bool, str]:  # pragma: no cover
         """v0.3.6 F3：清空调参历史。返回 ``(ok, error)``。"""
         ...
+
+    async def approve_tune(self, record_id: int, approved_by: str = "web") -> dict:  # pragma: no cover
+        """v0.3.10：批准并 apply 一条 pending 记录。"""
+
+    async def reject_tune(self, record_id: int, approved_by: str = "web") -> tuple[bool, str]:  # pragma: no cover
+        """v0.3.10：拒绝一条 pending 记录。"""
+
+    async def restore_tune(self, record_id: int) -> tuple[bool, str]:  # pragma: no cover
+        """v0.3.10：恢复一条 rejected 记录回 pending。"""
+
+    async def run_autotune_plan(self, body: dict) -> dict:  # pragma: no cover
+        """v0.3.10：两轮模式第二轮——基于 diagnosis 输出 plan。"""
 
     async def run_autotune(self, body: dict) -> dict:  # pragma: no cover
         """LLM 诊断调参（v0.2.8 F3 引入；v0.2.9 T6.1 扩展透传字段）。
@@ -120,7 +143,7 @@ def _err(msg: str, status: int = 400) -> tuple[int, dict]:
 
 
 def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
-    """构造 15 个 Web API handler，key 形如 'GET /prosocial/status'。
+    """构造 16 个 Web API handler，key 形如 'GET /prosocial/status'。
 
     main.py 遍历此 dict，按 METHOD/PATH 注册到 `context.register_web_api`，
     并在自身 handler 中解析 query/body 调用对应函数，把返回的 (status, json) 转为响应。
@@ -294,7 +317,26 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
                 limit = 500
             if offset < 0:
                 offset = 0
-            data = await bridge.get_tune_history_view(limit=limit, offset=offset)
+            # v0.3.10：新增 query 参数 status / include_archived / hide_days
+            # status 仅识别 pending / pending_diagnosis，其他值不过滤（避免注入任意字符串）
+            status_filter = params.get("status") or None
+            if status_filter not in ("pending", "pending_diagnosis", None):
+                status_filter = None
+            include_archived = str(params.get("include_archived", "0")).lower() in (
+                "1", "true", "yes",
+            )
+            hide_days = None
+            if "hide_days" in params:
+                try:
+                    hide_days = int(params["hide_days"])
+                except (TypeError, ValueError):
+                    pass
+            data = await bridge.get_tune_history_view(
+                limit=limit, offset=offset,
+                status_filter=status_filter,
+                include_archived=include_archived,
+                hide_days=hide_days,
+            )
             return _ok(data)
         except Exception as e:
             return _err(str(e), 500)
@@ -309,7 +351,12 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
             return _err(str(e), 500)
 
     async def post_tune_history(params: dict, body: dict | None) -> tuple[int, dict]:
-        """POST 别名：bridge 无 apiDelete，前端用 action=clear 清空历史。"""
+        """POST 调参历史操作（v0.3.10 扩展批准工作流）。
+
+        action: ``clear`` 清空 / ``approve`` 批准并 apply / ``reject`` 拒绝 /
+        ``restore`` 恢复回 pending / ``plan`` 两轮模式第二轮生成 plan。
+        bridge 无 apiDelete，前端用 action=clear 清空历史。
+        """
         try:
             if body is None:
                 return _err("请求体不能为空")
@@ -321,7 +368,57 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
                 if not ok:
                     return _err(err)
                 return _ok({"cleared": True})
-            return _err("未知 action，仅支持 'clear'")
+
+            # v0.3.10 T7：批准工作流 action（approve/reject/restore 共用 record_id 解析）
+            if action in ("approve", "reject", "restore"):
+                record_id = body.get("record_id")
+                if record_id is None:
+                    return _err("缺少 record_id")
+                try:
+                    record_id = int(record_id)
+                except (TypeError, ValueError):
+                    return _err("record_id 必须是整数")
+                if action == "approve":
+                    approved_by = str(body.get("approved_by", "web") or "web")
+                    # approve_tune 返回 llm_autotune 响应 dict（含 ok 字段），透传给前端
+                    result = await bridge.approve_tune(record_id, approved_by)
+                    if not isinstance(result, dict):
+                        return _err("approve_tune 返回类型异常", 500)
+                    return 200, result
+                if action == "reject":
+                    approved_by = str(body.get("approved_by", "web") or "web")
+                    ok, err = await bridge.reject_tune(record_id, approved_by)
+                    if not ok:
+                        return _err(err)
+                    return _ok({"rejected": True, "record_id": record_id})
+                # action == "restore"
+                ok, err = await bridge.restore_tune(record_id)
+                if not ok:
+                    return _err(err)
+                return _ok({"restored": True, "record_id": record_id})
+
+            if action == "plan":
+                # 两轮模式第二轮：body 含 record_id/style/guidance，透传给 run_autotune_plan
+                result = await bridge.run_autotune_plan(body)
+                if not isinstance(result, dict):
+                    return _err("run_autotune_plan 返回类型异常", 500)
+                return 200, result
+
+            return _err("未知 action，支持: clear / approve / reject / restore / plan")
+        except Exception as e:
+            return _err(str(e), 500)
+
+    async def post_autotune_plan(params: dict, body: dict | None) -> tuple[int, dict]:
+        """v0.3.10 T7：两轮模式第二轮独立端点，body 含 record_id/style/guidance。"""
+        try:
+            if body is None:
+                return _err("请求体不能为空")
+            if not isinstance(body, dict):
+                return _err("请求体必须是 JSON 对象")
+            result = await bridge.run_autotune_plan(body)
+            if not isinstance(result, dict):
+                return _err("run_autotune_plan 返回类型异常", 500)
+            return 200, result
         except Exception as e:
             return _err(str(e), 500)
 
@@ -338,6 +435,7 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         "POST /prosocial/interests": post_interests,
         "GET /prosocial/export": get_export,
         "POST /prosocial/autotune": post_autotune,
+        "POST /prosocial/autotune_plan": post_autotune_plan,
         "GET /prosocial/tune_history": get_tune_history,
         "DELETE /prosocial/tune_history": delete_tune_history,
         "POST /prosocial/tune_history": post_tune_history,

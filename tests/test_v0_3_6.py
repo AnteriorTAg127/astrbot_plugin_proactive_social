@@ -403,7 +403,10 @@ class _MockBridgeV036:
         self.last_interests_patch = body
         return self.interests_patch_result
 
-    async def get_tune_history_view(self, limit=50, offset=0):
+    async def get_tune_history_view(
+        self, limit=50, offset=0,
+        *, status_filter=None, include_archived=False, hide_days=None,
+    ):
         return self.tune_history_data
 
     async def clear_tune_history_view(self):

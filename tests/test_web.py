@@ -92,8 +92,12 @@ class _MockBridge:
             "version": "v0.2.6",
         }
 
-    # v0.3.6 F3：调参历史 mock
-    async def get_tune_history_view(self, limit: int = 50, offset: int = 0) -> dict:
+    # v0.3.6 F3：调参历史 mock（v0.3.10 T7 扩展 status_filter/include_archived/hide_days）
+    async def get_tune_history_view(
+        self, limit: int = 50, offset: int = 0,
+        *, status_filter: str | None = None,
+        include_archived: bool = False, hide_days: int | None = None,
+    ) -> dict:
         return {
             "records": [],
             "stats": {
@@ -619,12 +623,12 @@ def test_web_post_autotune_bridge_exception_500():
 
 
 # ---------------------------------------------------------------------- #
-# 全部 15 handler 存在
+# 全部 16 handler 存在
 # ---------------------------------------------------------------------- #
 
 
-def test_web_build_handlers_returns_fifteen():
-    """build_handlers 返回恰好 15 个 handler（v0.3.6 新增 tune_history GET/DELETE/POST）。"""
+def test_web_build_handlers_returns_sixteen():
+    """build_handlers 返回恰好 16 个 handler（v0.3.10 T7 新增 autotune_plan POST）。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     expected = {
@@ -640,16 +644,17 @@ def test_web_build_handlers_returns_fifteen():
         "POST /prosocial/interests",
         "GET /prosocial/export",
         "POST /prosocial/autotune",
+        "POST /prosocial/autotune_plan",
         "GET /prosocial/tune_history",
         "DELETE /prosocial/tune_history",
         "POST /prosocial/tune_history",
     }
     assert set(handlers.keys()) == expected
-    assert len(handlers) == 15
+    assert len(handlers) == 16
 
 
 def test_web_all_handlers_async_callable():
-    """15 个 handler 都是 async 可调用。"""
+    """16 个 handler 都是 async 可调用。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     for key, h in handlers.items():

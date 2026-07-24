@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -522,13 +523,31 @@ class SocialScheduler(BatchPipelineMixin, BotEventsMixin, AutotuneStatsMixin):
                     return
 
             # 8. 入缓冲区（v0.2 传入 is_wake 供批次级 mentions_bot 判定）
-            # v0.3.5 F2：emoji 过滤——配置启用时在入缓冲前移除 emoji 字符
+            # v0.3.10 特殊字符剔除：先剔除 Unicode Cf 类不可见格式字符
+            #   - 零宽字符 U+200B/C/D（ZWSP/ZWNJ/ZWJ）、BOM U+FEFF、WJ U+2060
+            #   - 方向控制 U+200E/F（LRM/RLM）、U+202A-E（LRE/RLE/PDF/LRO/RLO）、U+2066-9（隔离符）
+            # 这些字符会扰乱 embedding 分词与文本方向显示，必须最先剔除
+            entry_text = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]", "", text)
+            # v0.3.5 F2：emoji 过滤——配置启用时在移除 emoji 字符
             filter_emoji = bool(cfg.get("emoji_filter_enabled", True))
-            entry_text = text
             if filter_emoji:
-                entry_text = strip_emoji(text)
+                entry_text = strip_emoji(entry_text)
                 if not entry_text.strip():
                     # 纯 emoji 消息：不入缓冲（但仍已记录上下文窗口）
+                    return
+            # v0.3.8 @ 昵称清洗：移除消息文本中的 @ 昵称，避免污染 Embedding 向量
+            # 仅清洗进缓冲区的文本（用于评分/embedding），上下文窗口保留原始文本
+            # v0.3.10 修正：AstrBot At 渲染格式为 @昵称(平台ID)空格，如 @狐白(3693831132)
+            # 旧正则只剥离 @昵称，残留 (平台ID) 数字串仍污染 embedding；改为完整剥离整个 token
+            if bool(cfg.get("strip_at_mention_enabled", True)):
+                # 1. 剥离标准 At 格式：@昵称(ID)空格（昵称可含任意非空白非括号字符）
+                entry_text = re.sub(r"@[^\s()]*\(\d+\)\s*", "", entry_text)
+                # 2. 兜底剥离非标准 @昵称（@ 在词首，后跟非空白字符；不误伤 user@domain 邮箱）
+                entry_text = re.sub(r"(?<!\w)@\S{1,30}", "", entry_text)
+                # 3. 清理多余空格
+                entry_text = re.sub(r"\s+", " ", entry_text).strip()
+                if not entry_text:
+                    # 清洗后为空（纯 @ 消息）：不入缓冲
                     return
             g["buffer"].append(
                 user_id,

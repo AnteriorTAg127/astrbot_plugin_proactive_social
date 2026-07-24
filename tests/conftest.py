@@ -384,6 +384,13 @@ def default_config() -> dict:
         "conversation_state_window": 10,
         "conversation_state_monologue_ratio": 0.6,
         "conversation_state_argument_msg_len": 20,
+        # v0.3.8 @ 昵称清洗
+        "strip_at_mention_enabled": True,
+        # v0.3.10 LLM 调参约束 / 历史归档
+        "autotune_max_change_ratio": 0.3,
+        "autotune_max_params_per_tune": 5,
+        "autotune_two_phase_enabled": False,
+        "autotune_history_hide_days": 30,
     }
 
 

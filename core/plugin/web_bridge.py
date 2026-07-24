@@ -1,13 +1,15 @@
 """WebBridge 模块（模块 D）：Web API 注册与 WebBridge 鸭子接口实现。
 
 职责：
-1. ``_register_web_apis`` / ``_wrap_web_handler``：注册 15 个 Web API 路由，
+1. ``_register_web_apis`` / ``_wrap_web_handler``：注册 16 个 Web API 路由，
    把 ``core/web.py`` 的 ``(params, body) -> (status, json)`` 适配为
    AstrBot ``register_web_api`` 期望的 handler（统一 200 + 结构化错误）。
-2. WebBridge 鸭子接口实现（12 个方法）：``get_status`` / ``get_decisions`` /
+2. WebBridge 鸭子接口实现（16 个方法）：``get_status`` / ``get_decisions`` /
    ``get_config_view`` / ``set_config_view`` / ``get_groups_view`` / ``set_groups_view`` /
    ``get_providers_view`` / ``get_interests_view`` / ``set_interests_view`` /
-   ``get_export_view`` / ``get_tune_history_view`` / ``clear_tune_history_view``。
+   ``get_export_view`` / ``get_tune_history_view`` / ``clear_tune_history_view`` /
+   ``approve_tune`` / ``reject_tune`` / ``restore_tune`` / ``run_autotune_plan``
+   （后 4 个为 v0.3.10 T7 批准工作流 API）。
 
 设计要点：
 - Mixin 不定义 ``__init__``，依赖宿主类（``ProSocialPlugin``）提供 ``self.context`` /
@@ -49,7 +51,7 @@ class WebBridgeMixin:
     # Web API 注册与 handler 包装
     # ------------------------------------------------------------------ #
     def _register_web_apis(self):
-        """注册 15 个 Web API，route 加插件名前缀。"""
+        """注册 16 个 Web API，route 加插件名前缀。"""
         # self 实现 WebBridge 鸭子接口（get_status/get_decisions/get_config_view/
         # set_config_view/get_groups_view/set_groups_view）
         handlers = build_handlers(self)
@@ -385,16 +387,28 @@ class WebBridgeMixin:
 
     # --- v0.3.6 F3：调参历史 API ---
 
-    async def get_tune_history_view(self, limit: int = 50, offset: int = 0) -> dict:
+    async def get_tune_history_view(
+        self, limit: int = 50, offset: int = 0,
+        *, status_filter: str | None = None,
+        include_archived: bool = False, hide_days: int | None = None,
+    ) -> dict:
         """返回调参历史记录列表 + 统计摘要。
 
         limit/offset 分页；返回 {records, stats}。
+        v0.3.10：透传 status_filter/include_archived/hide_days 给
+        ``TuneHistoryStore.list``（按状态过滤 / 30 天归档隐藏）。
         records 每条含 id/timestamp/action/source/patch/keywords_patch/persona_revision/
-        analysis/expected_effect/applied。
+        analysis/expected_effect/applied + 8 个新字段（original_values/pre_apply_values/
+        applied_values/diagnosis/plan/status/approved_by/error_msg）。
         stats 含 total/analyze_count/apply_count/last_timestamp。
         """
         try:
-            records = await self._tune_history.list(limit=limit, offset=offset)
+            records = await self._tune_history.list(
+                limit, offset,
+                status_filter=status_filter,
+                include_archived=include_archived,
+                hide_days=hide_days,
+            )
             stats = await self._tune_history.get_stats()
             return {"records": records, "stats": stats}
         except Exception as e:
@@ -418,6 +432,75 @@ class WebBridgeMixin:
         except Exception as e:
             self._log("warning", f"clear_tune_history_view 失败: {e}")
             return False, str(e)
+
+    # --- v0.3.10 T7：批准工作流 API ---
+
+    async def approve_tune(self, record_id: int, approved_by: str = "web") -> dict:
+        """v0.3.10 T7：批准并 apply 一条 pending 记录。
+
+        调 ``llm_autotune(action='apply', record_id=record_id, approved_by=approved_by,
+        source='manual')``。返回 llm_autotune 的响应 dict。
+        """
+        try:
+            return await self.llm_autotune(
+                "apply", record_id=record_id, approved_by=approved_by, source="manual"
+            )
+        except Exception as e:
+            self._log("warning", f"approve_tune 失败: {e}")
+            return {"ok": False, "error": f"批准失败: {e}"}
+
+    async def reject_tune(self, record_id: int, approved_by: str = "web") -> tuple[bool, str]:
+        """v0.3.10 T7：拒绝一条 pending 记录。
+
+        调 ``tune_history.update_status(record_id, 'rejected', approved_by)``。
+        返回 (ok, error)。
+        """
+        try:
+            ok = await self._tune_history.update_status(record_id, "rejected", approved_by)
+            if not ok:
+                return False, f"记录 {record_id} 不存在或更新失败"
+            return True, ""
+        except Exception as e:
+            self._log("warning", f"reject_tune 失败: {e}")
+            return False, str(e)
+
+    async def restore_tune(self, record_id: int) -> tuple[bool, str]:
+        """v0.3.10 T7：恢复一条 rejected 记录回 pending。
+
+        调 ``tune_history.update_status(record_id, 'pending')``。
+        返回 (ok, error)。
+        """
+        try:
+            ok = await self._tune_history.update_status(record_id, "pending")
+            if not ok:
+                return False, f"记录 {record_id} 不存在或更新失败"
+            return True, ""
+        except Exception as e:
+            self._log("warning", f"restore_tune 失败: {e}")
+            return False, str(e)
+
+    async def run_autotune_plan(self, body: dict) -> dict:
+        """v0.3.10 T7：两轮模式第二轮——基于已生成 diagnosis 输出 plan。
+
+        body 字段：record_id (必填) / style / guidance。
+        调 ``llm_autotune_plan(record_id, style=, guidance=, source='manual')``。
+        """
+        try:
+            record_id = body.get("record_id")
+            if record_id is None:
+                return {"ok": False, "error": "缺少 record_id"}
+            try:
+                record_id = int(record_id)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "record_id 必须是整数"}
+            style = str(body.get("style", "") or "")
+            guidance = str(body.get("guidance", "") or "")
+            return await self.llm_autotune_plan(
+                record_id, style=style, guidance=guidance, source="manual"
+            )
+        except Exception as e:
+            self._log("warning", f"run_autotune_plan 失败: {e}")
+            return {"ok": False, "error": f"方案轮失败: {e}"}
 
     def get_export_view(self) -> dict:
         """导出完整配置+决策记录+疲劳+兴趣的 JSON 供 AI 辅助调参（F11）。"""

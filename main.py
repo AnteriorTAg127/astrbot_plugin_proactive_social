@@ -54,7 +54,7 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.3.8")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.3.10")
 class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, Star):
     """主动社交插件入口（模块 G）。
 

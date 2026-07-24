@@ -764,13 +764,226 @@
       }
       .btn-restore:hover { opacity: .85; }
       .btn-restore:disabled { opacity: .5; cursor: not-allowed; }
+
+      /* ===== v0.3.10 T8 调参历史扩展 ===== */
+      /* 顶部工具栏 */
+      .tune-toolbar {
+        display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+        padding: 10px 0 12px; margin-bottom: 8px;
+        border-bottom: 1px dashed var(--border);
+      }
+      .tune-toolbar .toolbar-title { font-size: 14px; font-weight: 600; color: var(--text); }
+      .tune-toolbar .toolbar-spacer { flex: 1; }
+      .tune-toolbar .toolbar-switch {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 12px; color: var(--muted); cursor: pointer;
+        user-select: none;
+      }
+      .tune-toolbar .toolbar-switch input { margin: 0; }
+      .tune-toolbar .btn-analyze {
+        background: var(--accent); color: #fff; border: none;
+        padding: 6px 14px; border-radius: 7px; font-size: 12px;
+        cursor: pointer; font-weight: 500;
+      }
+      .tune-toolbar .btn-analyze:hover { opacity: .9; }
+      .tune-toolbar .btn-refresh {
+        background: transparent; color: var(--text);
+        border: 1px solid var(--border-strong);
+        padding: 6px 12px; border-radius: 7px; font-size: 12px;
+        cursor: pointer;
+      }
+      .tune-toolbar .btn-refresh:hover { background: var(--bg-elev); }
+
+      /* 历史记录卡片（v0.3.10 重写） */
+      .th-card {
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 10px; margin-bottom: 10px; overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+      .th-card .th-head {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        padding: 10px 14px; background: var(--card-2);
+        border-bottom: 1px solid var(--border);
+        cursor: pointer; user-select: none;
+      }
+      .th-card .th-head:hover { background: var(--bg-elev); }
+      .th-card .th-id {
+        font-family: var(--mono); font-size: 12px; font-weight: 600;
+        color: var(--muted); min-width: 56px;
+      }
+      .th-card .th-time {
+        font-family: var(--mono); font-size: 12px; color: var(--muted);
+        min-width: 140px;
+      }
+      .th-card .th-body {
+        padding: 12px 14px; display: none;
+        border-top: 1px solid var(--border);
+      }
+      .th-card.expanded .th-body { display: block; }
+      .th-card .th-body .th-section { margin-bottom: 12px; }
+      .th-card .th-body .th-section:last-child { margin-bottom: 0; }
+      .th-card .th-body h4 {
+        font-size: 12px; color: var(--muted); margin: 0 0 6px 0;
+        font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+      }
+      .th-card .th-actions {
+        display: flex; gap: 8px; flex-wrap: wrap;
+        padding: 10px 14px; background: var(--bg-elev);
+        border-top: 1px solid var(--border);
+      }
+      .th-card .th-actions .btn { padding: 5px 12px; font-size: 12px; }
+      .th-card .th-actions .btn-approve { background: var(--ok); color: #fff; border: none; }
+      .th-card .th-actions .btn-approve:hover { opacity: .9; }
+      .th-card .th-actions .btn-reject { background: var(--err); color: #fff; border: none; }
+      .th-card .th-actions .btn-reject:hover { opacity: .9; }
+      .th-card .th-actions .btn-restore { background: var(--ok); color: #fff; border: none; padding: 5px 12px; font-size: 12px; border-radius: 7px; cursor: pointer; }
+      .th-card .th-actions .btn-restore:hover { opacity: .9; }
+      .th-card .th-actions .btn-plan { background: var(--accent); color: #fff; border: none; }
+      .th-card .th-actions .btn-plan:hover { opacity: .9; }
+
+      /* status 6 色标签 */
+      .th-status {
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 11px; font-weight: 600; padding: 2px 8px;
+        border-radius: 999px; border: 1px solid transparent;
+        font-family: var(--mono); letter-spacing: .02em;
+      }
+      .th-status::before {
+        content: ""; width: 6px; height: 6px; border-radius: 50%;
+        background: currentColor;
+      }
+      .th-status.st-pending { color: var(--warn); background: var(--warn-soft); border-color: var(--warn); }
+      .th-status.st-pending_diagnosis { color: var(--info); background: var(--accent-soft); border-color: var(--info); }
+      .th-status.st-applied { color: var(--ok); background: var(--ok-soft); border-color: var(--ok); }
+      .th-status.st-rejected { color: var(--muted); background: var(--bg-elev); border-color: var(--border-strong); }
+      .th-status.st-failed { color: var(--err); background: var(--err-soft); border-color: var(--err); }
+      .th-status.st-superseded { color: var(--subtle); background: var(--bg-elev); border-color: var(--border); }
+      /* 旧记录无 status 字段的兜底 */
+      .th-status.st-unknown { color: var(--subtle); background: var(--bg-elev); border-color: var(--border); }
+
+      /* source 3 色标签 */
+      .th-source {
+        display: inline-flex; align-items: center; gap: 4px;
+        font-size: 11px; font-weight: 600; padding: 2px 8px;
+        border-radius: 4px; border: 1px solid transparent;
+      }
+      .th-source.src-manual { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+      .th-source.src-auto { color: var(--info); background: var(--accent-soft); border-color: var(--info); }
+      .th-source.src-force { color: var(--err); background: var(--err-soft); border-color: var(--err); }
+      .th-source.src-unknown { color: var(--muted); background: var(--bg-elev); border-color: var(--border); }
+
+      /* diagnosis 折叠块 */
+      .th-diagnosis {
+        background: var(--bg-elev); border: 1px solid var(--border);
+        border-radius: 8px; padding: 10px 12px;
+        font-size: 12px; line-height: 1.6; color: var(--text);
+        white-space: pre-wrap; word-break: break-word;
+      }
+      .th-diagnosis.empty { color: var(--subtle); font-style: italic; }
+
+      /* plan 表格（参数名/原始/建议/变化/理由/预期/apply 前/apply 后） */
+      .th-plan-table {
+        width: 100%; border-collapse: collapse; font-size: 12px;
+        background: var(--card-2); border: 1px solid var(--border); border-radius: 6px;
+        overflow: hidden;
+      }
+      .th-plan-table thead th {
+        background: var(--bg-elev); color: var(--muted); font-weight: 600;
+        font-size: 11px; padding: 6px 8px; text-align: left;
+        border-bottom: 1px solid var(--border-strong);
+        text-transform: uppercase; letter-spacing: .03em;
+        white-space: nowrap;
+      }
+      .th-plan-table tbody td {
+        padding: 6px 8px; border-bottom: 1px solid var(--border);
+        vertical-align: top; word-break: break-word;
+      }
+      .th-plan-table tbody tr:last-child td { border-bottom: none; }
+      .th-plan-table .td-key { font-family: var(--mono); font-weight: 600; color: var(--text); }
+      .th-plan-table .td-num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+      .th-plan-table .delta-pos { color: var(--ok); font-weight: 600; }
+      .th-plan-table .delta-neg { color: var(--err); font-weight: 600; }
+      .th-plan-table .delta-zero { color: var(--muted); }
+      .th-plan-table .td-reason { color: var(--muted); font-size: 11px; }
+      .th-plan-table .td-expected { color: var(--info); font-size: 11px; }
+      .th-plan-table .td-pre-applied { color: var(--subtle); font-size: 11px; }
+      .th-plan-table .td-applied { color: var(--ok); font-size: 11px; font-weight: 600; }
+
+      /* error_msg 块 */
+      .th-error-msg {
+        background: var(--err-soft); border: 1px solid var(--err);
+        border-radius: 6px; padding: 8px 12px;
+        font-size: 12px; color: var(--err); line-height: 1.5;
+      }
+
+      /* 关键词 patch / 人设改写 折叠块 */
+      .th-details-block {
+        background: var(--card-2); border: 1px solid var(--border);
+        border-radius: 8px; margin-top: 8px;
+      }
+      .th-details-block > summary {
+        cursor: pointer; padding: 6px 10px; font-size: 12px; font-weight: 600;
+        color: var(--muted); user-select: none;
+        list-style: none;
+      }
+      .th-details-block > summary::before {
+        content: "▶"; display: inline-block; margin-right: 6px;
+        transition: transform .15s; font-size: 10px;
+      }
+      .th-details-block[open] > summary::before { transform: rotate(90deg); }
+      .th-details-block > .th-details-content {
+        padding: 8px 12px 12px; font-size: 12px;
+        border-top: 1px dashed var(--border);
+      }
+
+      /* ===== v0.3.10 T9 概览页「待批准调参」精简卡片 ===== */
+      .pending-tune-card {
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow);
+      }
+      .pending-tune-card .ptc-head {
+        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      .pending-tune-card .ptc-title {
+        font-size: 14px; font-weight: 600; color: var(--text);
+      }
+      .pending-tune-card .ptc-body {
+        padding: 10px 12px; background: var(--bg-elev);
+        border: 1px solid var(--border); border-radius: 8px;
+        font-size: 12px; line-height: 1.6;
+      }
+      .pending-tune-card .ptc-body .ptc-meta {
+        display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        margin-bottom: 6px; font-family: var(--mono); font-size: 11px; color: var(--muted);
+      }
+      .pending-tune-card .ptc-body .ptc-diagnosis {
+        color: var(--text); margin: 6px 0;
+        max-height: 60px; overflow: hidden; position: relative;
+      }
+      .pending-tune-card .ptc-body .ptc-diagnosis::after {
+        content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 18px;
+        background: linear-gradient(180deg, transparent, var(--bg-elev));
+      }
+      .pending-tune-card .ptc-body .ptc-plan-count {
+        font-size: 11px; color: var(--accent); font-weight: 600;
+        margin-top: 4px;
+      }
+      .pending-tune-card .ptc-actions {
+        display: flex; gap: 8px; margin-top: 10px;
+      }
+      .pending-tune-card .ptc-actions .btn { padding: 5px 12px; font-size: 12px; }
+      .pending-tune-card .ptc-empty {
+        color: var(--subtle); font-style: italic; padding: 8px 0;
+        font-size: 12px; text-align: center;
+      }
     </style>
   </head>
   <body>
     <header>
       <div class="brand">
         <div class="logo">PS</div>
-        <h1>主动社交<span class="sub">任务控制台 v0.3.8</span></h1>
+        <h1>主动社交<span class="sub">任务控制台 v0.3.10</span></h1>
       </div>
       <span class="meta" id="lastRefresh">未刷新</span>
       <span id="errBanner"></span>
@@ -873,6 +1086,15 @@
           <section class="panel span-7" id="panel-groups-state">
             <h2><span class="dot live"></span><span class="title">群状态机 · 惯性</span></h2>
             <div id="groupStateList"><div class="empty">加载中…</div></div>
+          </section>
+
+          <!-- v0.3.10 T9.1 待批准调参精简卡片 -->
+          <section class="panel span-12" id="panel-pending-tune">
+            <h2>
+              <span class="title">待批准调参建议</span>
+              <span class="meta" style="font-size:11px;color:var(--muted);margin-left:8px;" id="pendingTuneMeta"></span>
+            </h2>
+            <div id="pendingTuneContent"><div class="empty">加载中…</div></div>
           </section>
 
           <!-- 4. DRY_RUN（独立成行）-->
@@ -992,7 +1214,7 @@
         </div>
       </div>
 
-      <!-- ===== Tab 6: 调参历史（v0.3.6）===== -->
+      <!-- ===== Tab 6: 调参历史（v0.3.6 + v0.3.10 T8 扩展）===== -->
       <div class="tab-panel" data-tab="tune-history">
         <section class="panel span-12">
           <div class="tune-history-header">
@@ -1001,6 +1223,21 @@
               <button onclick="loadTuneHistory()">刷新</button>
               <button onclick="clearTuneHistory()" style="background:var(--err);color:white;">清空历史</button>
             </div>
+          </div>
+          <!-- v0.3.10 T8.1 工具栏：刷新 + 仅显示 pending + 显示归档 + 分析 -->
+          <div class="tune-toolbar">
+            <span class="toolbar-title">历史记录</span>
+            <div class="toolbar-spacer"></div>
+            <label class="toolbar-switch" title="勾选后仅显示 status=pending 的记录">
+              <input type="checkbox" id="tuneFilterPending" />
+              <span>仅显示 pending</span>
+            </label>
+            <label class="toolbar-switch" title="勾选后显示全部记录（包括 30 天前的归档记录）">
+              <input type="checkbox" id="tuneFilterArchived" />
+              <span>显示归档</span>
+            </label>
+            <button class="btn-analyze" id="tuneAnalyzeBtn" title="触发 LLM 分析（POST /prosocial/autotune action=analyze）">🤖 分析</button>
+            <button class="btn-refresh" id="tuneRefreshBtn">刷新列表</button>
           </div>
           <div class="tune-stats" id="tune-stats">
             <div class="stat-card"><div class="stat-label">总次数</div><div class="stat-value num" id="tune-stat-total">—</div></div>
@@ -1123,7 +1360,10 @@
 	        // --- v0.2.9 新增（F1/F3/F4 LLM 全视野 + 自动触发 + 速率限制）---
 	        autotune_safe_rate_hi: 0.30, autotune_safe_rate_lo: 0.05,
 	        autotune_auto_trigger_enabled: true, autotune_auto_apply: false,
-	        autotune_min_decisions: 30, autotune_cooldown_hours: 3.0, autotune_max_per_day: 4
+	        autotune_min_decisions: 30, autotune_cooldown_hours: 3.0, autotune_max_per_day: 4,
+	        // --- v0.3.10 新增（LLM 调参约束 + 历史归档）---
+	        autotune_max_change_ratio: 0.3, autotune_max_params_per_tune: 5,
+	        autotune_two_phase_enabled: false, autotune_history_hide_days: 30
       };
 
       // ============ 配置字段定义（key 与后端 get_config_view 返回键一致）============
@@ -1280,6 +1520,11 @@
             // --- v0.3.5 F4 新增（强制触发机制）---
             { key: "autotune_force_rate_threshold", label: "强制触发触发率阈值", type: "float", min: 0, max: 1, step: 0.01, hint: "窗口触发率高于此值时无视冷却期强制触发 LLM 调参（默认 0.50，高于 autotune_safe_rate_hi）" },
             { key: "autotune_force_cooldown_hours", label: "强制触发冷却(小时)", type: "float", min: 0, max: 72, step: 0.5, hint: "强制触发独立冷却防抖（默认 1.0 小时，避免短时间内反复强制触发）" },
+            // --- v0.3.10 新增（LLM 调参约束 + 历史归档）---
+            { key: "autotune_max_change_ratio", label: "单次调参幅度上限", type: "float", min: 0, max: 1, step: 0.05, hint: "LLM 单次建议值相对当前值的最大变化比例（如 0.3=±30%）；|当前值|<0.1 时按参数 VALIDATORS 范围 1/4 限幅（边界兼底）" },
+            { key: "autotune_max_params_per_tune", label: "单次可改参数数上限", type: "int", min: 3, max: 15, hint: "LLM 单次建议最多改多少个参数（超过则后端截断取前 N 项，其余丢弃并记 error_msg）" },
+            { key: "autotune_two_phase_enabled", label: "两轮调参模式", type: "bool", hint: "默认单轮 LLM 输出两段（诊断+方案）；开启后两轮：第一轮只输出诊断，用户在历史页点「基于此诊断调参」后第二轮输出方案。第二轮不单独计速率限制" },
+            { key: "autotune_history_hide_days", label: "历史记录隐藏天数", type: "int", min: 1, max: 365, hint: "默认隐藏多少天前的 non-pending 记录（pending 始终显示）；用户可在历史页点「查看历史归档」展开" },
           ]
         },
         {
@@ -1289,6 +1534,7 @@
             { key: "batch_min_text_length", label: "短批次最小文本长度", type: "int", min: 0, max: 200, hint: "批次文本长度低于此值且消息≤1 时回填等待合并（0=禁用短批次合并）" },
             { key: "batch_short_merge_max_attempts", label: "短批次最大合并次数", type: "int", min: 0, max: 10, hint: "最多合并 N 次后强制评估（避免无限回填）" },
             { key: "emoji_filter_enabled", label: "启用 Emoji 过滤", type: "bool", hint: "入缓冲区前移除 Unicode emoji 字符；纯 emoji 消息不入缓冲，净化 embedding" },
+            { key: "strip_at_mention_enabled", label: "@ 昵称清洗", type: "bool", hint: "启用时移除消息文本中的 @ 昵称（如 @狐白），避免昵称污染 Embedding 向量；仅清洗进缓冲区文本，上下文窗口保留原始文本（v0.3.8）" },
           ]
         },
         {
@@ -2986,22 +3232,33 @@
         });
       }
 
-      // ============ 调参历史 Tab6（v0.3.6）============
+      // ============ 调参历史 Tab6（v0.3.6 + v0.3.10 T8 扩展）============
       function loadTuneHistory() {
         if (!bridge) return;
         var listEl = document.getElementById("tune-history-list");
         if (listEl) listEl.innerHTML = '<div class="empty">加载中…</div>';
-        callApi(bridge.apiGet("prosocial/tune_history", { limit: 50 })).then(function (data) {
+        // v0.3.10 T8.5 过滤参数：
+        //   仅显示 pending → status=pending
+        //   显示归档 → include_archived=1（不传 hide_days）
+        //   默认（都不勾）→ hide_days=30（隐藏 30 天前 non-pending）
+        var params = { limit: 50 };
+        var pendingEl = document.getElementById("tuneFilterPending");
+        var archivedEl = document.getElementById("tuneFilterArchived");
+        if (pendingEl && pendingEl.checked) params.status = "pending";
+        if (archivedEl && archivedEl.checked) params.include_archived = 1;
+        else params.hide_days = 30;
+        callApi(bridge.apiGet("prosocial/tune_history", params)).then(function (data) {
           if (!data || typeof data !== "object") {
             if (listEl) listEl.innerHTML = '<div class="empty">无数据</div>';
             return;
           }
           // 渲染统计
-          document.getElementById("tune-stat-total").textContent = data.stats.total;
-          document.getElementById("tune-stat-analyze").textContent = data.stats.analyze_count;
-          document.getElementById("tune-stat-apply").textContent = data.stats.apply_count;
-          document.getElementById("tune-stat-last").textContent = data.stats.last_timestamp
-            ? new Date(data.stats.last_timestamp * 1000).toLocaleString("zh-CN")
+          var stats = data.stats || {};
+          document.getElementById("tune-stat-total").textContent = stats.total != null ? stats.total : "—";
+          document.getElementById("tune-stat-analyze").textContent = stats.analyze_count != null ? stats.analyze_count : "—";
+          document.getElementById("tune-stat-apply").textContent = stats.apply_count != null ? stats.apply_count : "—";
+          document.getElementById("tune-stat-last").textContent = stats.last_timestamp
+            ? new Date(stats.last_timestamp * 1000).toLocaleString("zh-CN")
             : "无";
           // 渲染列表
           if (!data.records || data.records.length === 0) {
@@ -3009,50 +3266,324 @@
             return;
           }
           listEl.innerHTML = data.records.map(function (r) { return renderTuneHistoryItem(r); }).join("");
+          // 绑定操作按钮事件（事件委托）
+          bindTuneHistoryActions(listEl);
         }).catch(function (e) {
           if (listEl) listEl.innerHTML = '<div class="empty">加载失败: ' + escapeHtml(e.message) + '</div>';
         });
       }
+      // v0.3.10 T8.3 调参历史操作按钮事件委托
+      function bindTuneHistoryActions(container) {
+        if (!container || container._tuneActionBound) return;
+        container._tuneActionBound = true;
+        container.addEventListener("click", function (e) {
+          var btn = e.target.closest ? e.target.closest("button[data-action]") : null;
+          if (!btn) return;
+          var action = btn.getAttribute("data-action");
+          var rid = Number(btn.getAttribute("data-rid"));
+          if (isNaN(rid)) return;
+          if (action === "approve") approveTuneRecord(rid);
+          else if (action === "reject") rejectTuneRecord(rid);
+          else if (action === "restore") restoreTuneRecord(rid);
+          else if (action === "plan") planTuneRecord(rid);
+        });
+      }
+      // v0.3.10 T8.2 渲染单条历史记录卡片（diagnosis + plan 表 + 操作按钮 + 错误信息）
       function renderTuneHistoryItem(r) {
         var time = new Date(r.timestamp * 1000).toLocaleString("zh-CN");
-        var actionColor = r.action === "apply" ? "var(--ok)" : "var(--accent)";
-        var sourceLabel = r.source === "auto" ? "自动" : "手动";
-        var appliedLabel = r.applied ? "已应用" : "未应用";
-        var analysisText = r.analysis || "";
-        var analysisPreview = analysisText.substring(0, 100) + (analysisText.length > 100 ? "…" : "");
-        // patch 表格
-        var patchRows = r.patch ? Object.keys(r.patch).map(function (k) {
-          return "<tr><td>" + escapeHtml(k) + "</td><td>" + escapeHtml(String(r.patch[k])) + "</td></tr>";
-        }).join("") : '<tr><td colspan="2" class="detail-empty">无</td></tr>';
-        // keywords_patch 列表
-        var kwHtml = '<div class="detail-empty">无</div>';
+        // status 6 色：优先用 r.status，向后兼容 applied 字段
+        var status = r.status;
+        if (!status) {
+          if (r.applied === true || r.applied === 1) status = "applied";
+          else if (r.action === "analyze") status = "pending";
+          else if (r.action === "apply") status = "applied";
+          else status = "unknown";
+        }
+        var statusCls = "st-" + status;
+        // source 3 色：旧记录默认 manual
+        var source = r.source || "manual";
+        if (source !== "manual" && source !== "auto" && source !== "force") source = "unknown";
+        var sourceCls = "src-" + source;
+        var sourceText = source === "auto" ? "自动" : (source === "force" ? "强制" : (source === "manual" ? "手动" : source));
+        // diagnosis 优先，analysis 向后兼容
+        var diagnosis = r.diagnosis || r.analysis || "";
+        // plan 表格（v0.3.10 新格式）+ 兼容旧 patch
+        var planList = Array.isArray(r.plan) ? r.plan : [];
+        var patchDict = r.patch || {};
+        var originalValues = r.original_values || {};
+        var preApplyValues = r.pre_apply_values || {};
+        var appliedValues = r.applied_values || {};
+        var isApplied = status === "applied";
+        var planHeader = '<tr>'
+          + '<th>参数名</th>'
+          + '<th>原始值</th>'
+          + '<th>建议值</th>'
+          + '<th>变化量</th>'
+          + '<th>理由</th>'
+          + '<th>预期影响</th>'
+          + (isApplied ? '<th>apply 前实际</th><th>apply 后实际</th>' : '')
+          + '</tr>';
+        var planRowsHtml = "";
+        var planCount = 0;
+        function renderPlanRow(key, original, suggested, delta, reason, expected) {
+          var deltaCls = "delta-zero";
+          if (typeof delta === "number") {
+            if (delta > 0) deltaCls = "delta-pos";
+            else if (delta < 0) deltaCls = "delta-neg";
+          }
+          var deltaText = (typeof delta === "number") ? (delta > 0 ? "+" : "") + delta : "—";
+          var html = '<tr>'
+            + '<td class="td-key">' + escapeHtml(key) + '</td>'
+            + '<td class="td-num">' + escapeHtml(original != null ? String(original) : "—") + '</td>'
+            + '<td class="td-num">' + escapeHtml(suggested != null ? String(suggested) : "—") + '</td>'
+            + '<td class="td-num ' + deltaCls + '">' + escapeHtml(deltaText) + '</td>'
+            + '<td class="td-reason">' + escapeHtml(reason || "—") + '</td>'
+            + '<td class="td-expected">' + escapeHtml(expected || "—") + '</td>';
+          if (isApplied) {
+            html += '<td class="td-pre-applied">' + escapeHtml(preApplyValues[key] != null ? String(preApplyValues[key]) : "—") + '</td>'
+              + '<td class="td-applied">' + escapeHtml(appliedValues[key] != null ? String(appliedValues[key]) : "—") + '</td>';
+          }
+          html += '</tr>';
+          return html;
+        }
+        if (planList.length > 0) {
+          planCount = planList.length;
+          planRowsHtml = planList.map(function (p) {
+            var key = p.key || "?";
+            var original = (p.original != null ? p.original : originalValues[key]);
+            var suggested = p.suggested;
+            var delta = p.delta;
+            if (delta == null && typeof original === "number" && typeof suggested === "number") {
+              delta = suggested - original;
+            }
+            return renderPlanRow(key, original, suggested, delta, p.reason, p.expected_effect_quant);
+          }).join("");
+        } else if (patchDict && Object.keys(patchDict).length > 0) {
+          // 旧格式 patch（仅 key→value）
+          var keys = Object.keys(patchDict);
+          planCount = keys.length;
+          planRowsHtml = keys.map(function (k) {
+            var original = originalValues[k];
+            var suggested = patchDict[k];
+            var delta = (typeof original === "number" && typeof suggested === "number") ? (suggested - original) : null;
+            return renderPlanRow(k, original, suggested, delta, "—", "—");
+          }).join("");
+        } else {
+          var colspan = isApplied ? 8 : 6;
+          planRowsHtml = '<tr><td colspan="' + colspan + '" class="detail-empty">无参数变更</td></tr>';
+        }
+        // 关键词 patch 折叠
+        var kwHtml = "";
         if (r.keywords_patch) {
-          var adds = (r.keywords_patch.add || []).map(function (a) {
-            return "<li>+ [" + escapeHtml(a.kind || "?") + "] " + escapeHtml(a.label || "") + " : " + escapeHtml(a.text || "") + "</li>";
-          }).join("");
-          var removes = (r.keywords_patch.remove || []).map(function (a) {
-            return "<li>- [" + escapeHtml(a.kind || "?") + "] " + escapeHtml(a.label || "") + " : " + escapeHtml(a.text || "") + "</li>";
-          }).join("");
-          if (adds || removes) {
-            kwHtml = '<ul class="kw-patch">' + adds + removes + "</ul>";
+          var adds = (r.keywords_patch.add || []);
+          var removes = (r.keywords_patch.remove || []);
+          if (adds.length || removes.length) {
+            var kwContent = "";
+            if (adds.length) {
+              kwContent += '<div style="margin-bottom:4px;color:var(--ok);font-weight:600;">+ 新增</div>';
+              kwContent += '<ul class="kw-patch" style="margin:0 0 8px 0;">';
+              adds.forEach(function (a) {
+                kwContent += '<li>+ [' + escapeHtml(a.kind || "?") + '] ' + escapeHtml(a.label || "") + ' : ' + escapeHtml(a.text || "") + '</li>';
+              });
+              kwContent += '</ul>';
+            }
+            if (removes.length) {
+              kwContent += '<div style="margin-bottom:4px;color:var(--err);font-weight:600;">- 删除</div>';
+              kwContent += '<ul class="kw-patch" style="margin:0;">';
+              removes.forEach(function (a) {
+                kwContent += '<li>- [' + escapeHtml(a.kind || "?") + '] ' + escapeHtml(a.label || "") + ' : ' + escapeHtml(a.text || "") + '</li>';
+              });
+              kwContent += '</ul>';
+            }
+            kwHtml = '<details class="th-details-block">'
+              + '<summary>关键词变更（新增 ' + adds.length + ' / 删除 ' + removes.length + '）</summary>'
+              + '<div class="th-details-content">' + kwContent + '</div>'
+              + '</details>';
           }
         }
-        return '<div class="tune-history-item">'
-          + '<div class="item-header" onclick="this.parentElement.classList.toggle(\'expanded\')">'
-          + '<span class="item-time num">' + escapeHtml(time) + "</span>"
-          + '<span class="item-action" style="background:' + actionColor + ';color:#fff;">' + escapeHtml(r.action || "?") + "</span>"
-          + '<span class="item-source">' + escapeHtml(sourceLabel) + "</span>"
-          + '<span class="item-applied">' + escapeHtml(appliedLabel) + "</span>"
-          + '<span class="item-preview">' + escapeHtml(analysisPreview) + "</span>"
-          + "</div>"
-          + '<div class="item-details">'
-          + '<div class="detail-section"><h4>分析</h4><div class="analysis-text">' + escapeHtml(analysisText || "无") + "</div></div>"
-          + '<div class="detail-section"><h4>参数补丁 (' + (r.patch ? Object.keys(r.patch).length : 0) + " 项)</h4><table class=\"patch-table\">" + patchRows + "</table></div>"
-          + '<div class="detail-section"><h4>关键词补丁</h4>' + kwHtml + "</div>"
-          + (r.persona_revision ? '<div class="detail-section"><h4>人设改写</h4><div class="persona-revision">' + escapeHtml(r.persona_revision) + "</div></div>" : "")
-          + (r.expected_effect ? '<div class="detail-section"><h4>预期效果</h4><div class="expected-effect">' + escapeHtml(r.expected_effect) + "</div></div>" : "")
-          + "</div>"
-          + "</div>";
+        // 人设改写折叠
+        var personaHtml = "";
+        if (r.persona_revision) {
+          personaHtml = '<details class="th-details-block">'
+            + '<summary>人设改写</summary>'
+            + '<div class="th-details-content"><div class="persona-revision">' + escapeHtml(r.persona_revision) + '</div></div>'
+            + '</details>';
+        }
+        // 错误信息
+        var errorHtml = "";
+        if ((status === "failed" || status === "superseded") && r.error_msg) {
+          errorHtml = '<div class="th-section"><h4>错误信息</h4><div class="th-error-msg">' + escapeHtml(r.error_msg) + '</div></div>';
+        }
+        // 预期整体效果
+        var expectedOverall = r.expected_effect_overall || r.expected_effect || "";
+        var expectedHtml = "";
+        if (expectedOverall) {
+          expectedHtml = '<div class="th-section"><h4>预期整体效果</h4><div class="expected-effect">' + escapeHtml(expectedOverall) + '</div></div>';
+        }
+        // 操作按钮区
+        var actionsHtml = "";
+        var rid = r.id;
+        if (rid != null) {
+          if (status === "pending") {
+            actionsHtml = '<div class="th-actions">'
+              + '<button class="btn btn-approve" data-action="approve" data-rid="' + escapeHtml(String(rid)) + '">批准并应用</button>'
+              + '<button class="btn btn-reject" data-action="reject" data-rid="' + escapeHtml(String(rid)) + '">拒绝</button>'
+              + '</div>';
+          } else if (status === "pending_diagnosis") {
+            actionsHtml = '<div class="th-actions">'
+              + '<button class="btn btn-plan" data-action="plan" data-rid="' + escapeHtml(String(rid)) + '">基于此诊断调参</button>'
+              + '<button class="btn btn-reject" data-action="reject" data-rid="' + escapeHtml(String(rid)) + '">拒绝</button>'
+              + '</div>';
+          } else if (status === "rejected") {
+            actionsHtml = '<div class="th-actions">'
+              + '<button class="btn btn-restore" data-action="restore" data-rid="' + escapeHtml(String(rid)) + '">恢复</button>'
+              + '</div>';
+          }
+        }
+        // diagnosis 头部预览（截断 100 字符）
+        var diagnosisPreview = diagnosis.substring(0, 100) + (diagnosis.length > 100 ? "…" : "");
+        return '<div class="th-card">'
+          + '<div class="th-head" onclick="this.parentElement.classList.toggle(\'expanded\')">'
+          + '<span class="th-id">#' + escapeHtml(String(r.id != null ? r.id : "?")) + '</span>'
+          + '<span class="th-time">' + escapeHtml(time) + '</span>'
+          + '<span class="th-source ' + sourceCls + '">' + escapeHtml(sourceText) + '</span>'
+          + '<span class="th-status ' + statusCls + '">' + escapeHtml(status) + '</span>'
+          + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--subtle);font-size:12px;">' + escapeHtml(diagnosisPreview) + '</span>'
+          + '</div>'
+          + '<div class="th-body">'
+          + '<div class="th-section"><h4>诊断报告</h4><div class="th-diagnosis' + (diagnosis ? '' : ' empty') + '">' + escapeHtml(diagnosis || "无") + '</div></div>'
+          + '<div class="th-section"><h4>调参方案（' + planCount + ' 项）</h4>'
+          + '<table class="th-plan-table"><thead>' + planHeader + '</thead><tbody>' + planRowsHtml + '</tbody></table>'
+          + '</div>'
+          + expectedHtml
+          + errorHtml
+          + (kwHtml || personaHtml ? '<div class="th-section"><h4>附加建议</h4>' + kwHtml + personaHtml + '</div>' : '')
+          + '</div>'
+          + actionsHtml
+          + '</div>';
+      }
+      // v0.3.10 T8.3 批准/拒绝/恢复/两轮第二轮 交互
+      function approveTuneRecord(rid) {
+        if (!bridge || rid == null) return;
+        confirmModal("确认批准", "确认批准并应用此调参方案？应用后配置将被覆盖。", function () {
+          callApi(bridge.apiPost("prosocial/tune_history", { action: "approve", record_id: rid })).then(function () {
+            toast("已批准并应用", "ok");
+            loadTuneHistory();
+            loadPendingTune();   // 同步概览页精简卡片
+          }).catch(function (e) {
+            toast("批准失败: " + e.message, "err");
+          });
+        });
+      }
+      function rejectTuneRecord(rid) {
+        if (!bridge || rid == null) return;
+        confirmModal("确认拒绝", "确认拒绝此调参方案？", function () {
+          callApi(bridge.apiPost("prosocial/tune_history", { action: "reject", record_id: rid })).then(function () {
+            toast("已拒绝", "ok");
+            loadTuneHistory();
+            loadPendingTune();
+          }).catch(function (e) {
+            toast("拒绝失败: " + e.message, "err");
+          });
+        });
+      }
+      function restoreTuneRecord(rid) {
+        if (!bridge || rid == null) return;
+        confirmModal("确认恢复", "确认将此 rejected 记录恢复为 pending？", function () {
+          callApi(bridge.apiPost("prosocial/tune_history", { action: "restore", record_id: rid })).then(function () {
+            toast("已恢复", "ok");
+            loadTuneHistory();
+            loadPendingTune();
+          }).catch(function (e) {
+            toast("恢复失败: " + e.message, "err");
+          });
+        });
+      }
+      // v0.3.10 T8.3 两轮第二轮：基于此诊断调参
+      function planTuneRecord(rid) {
+        if (!bridge || rid == null) return;
+        var style = document.getElementById("tuneStyle") ? document.getElementById("tuneStyle").value : "";
+        var guidance = document.getElementById("tuneGuidance") ? document.getElementById("tuneGuidance").value : "";
+        callApi(bridge.apiPost("prosocial/autotune_plan", { record_id: rid, style: style, guidance: guidance })).then(function () {
+          toast("方案已生成", "ok");
+          loadTuneHistory();
+          loadPendingTune();
+        }).catch(function (e) {
+          toast("方案生成失败: " + e.message, "err");
+        });
+      }
+      // v0.3.10 T8.4 顶部「分析」按钮
+      function analyzeTune() {
+        if (!bridge) return;
+        var btn = document.getElementById("tuneAnalyzeBtn");
+        if (btn) { btn.disabled = true; btn.textContent = "分析中…"; }
+        var style = document.getElementById("tuneStyle") ? document.getElementById("tuneStyle").value : "";
+        var guidance = document.getElementById("tuneGuidance") ? document.getElementById("tuneGuidance").value : "";
+        callApi(bridge.apiPost("prosocial/autotune", { action: "analyze", style: style, guidance: guidance })).then(function (d) {
+          // 显示 diagnosis 摘要 toast
+          if (d && d.diagnosis) {
+            var preview = d.diagnosis.substring(0, 80);
+            toast("分析完成：" + preview + (d.diagnosis.length > 80 ? "…" : ""), "ok");
+          } else {
+            toast("分析完成", "ok");
+          }
+          loadTuneHistory();
+          loadPendingTune();
+        }).catch(function (e) {
+          toast("分析失败: " + e.message, "err");
+        }).finally(function () {
+          if (btn) { btn.disabled = false; btn.textContent = "🤖 分析"; }
+        });
+      }
+      // v0.3.10 T9.1 概览页「待批准调参」精简卡片
+      function loadPendingTune() {
+        if (!bridge) return;
+        var el = document.getElementById("pendingTuneContent");
+        if (!el) return;
+        callApi(bridge.apiGet("prosocial/tune_history", { status: "pending", limit: 1 })).then(function (data) {
+          var metaEl = document.getElementById("pendingTuneMeta");
+          if (!data || !data.records || !data.records.length) {
+            if (metaEl) metaEl.textContent = "";
+            el.innerHTML = '<div class="pending-tune-card"><div class="ptc-empty">暂无待批准建议</div></div>';
+            return;
+          }
+          var r = data.records[0];
+          if (metaEl) {
+            var stats = data.stats || {};
+            metaEl.textContent = "共 " + (stats.total != null ? stats.total : 0) + " 条记录";
+          }
+          el.innerHTML = renderPendingTuneCard(r);
+          var approveBtn = document.getElementById("ptcApproveBtn");
+          if (approveBtn) approveBtn.addEventListener("click", function () { approveTuneRecord(r.id); });
+          var detailBtn = document.getElementById("ptcDetailBtn");
+          if (detailBtn) detailBtn.addEventListener("click", function () { switchTab("tune-history"); });
+        }).catch(function (e) {
+          el.innerHTML = '<div class="pending-tune-card"><div class="ptc-empty">加载失败: ' + escapeHtml(e.message) + '</div></div>';
+        });
+      }
+      function renderPendingTuneCard(r) {
+        var time = new Date(r.timestamp * 1000).toLocaleString("zh-CN");
+        var source = r.source || "manual";
+        var sourceCls = "src-" + source;
+        var sourceText = source === "auto" ? "自动" : (source === "force" ? "强制" : "手动");
+        var diagnosis = r.diagnosis || r.analysis || "";
+        var diagnosisTrunc = diagnosis.substring(0, 100) + (diagnosis.length > 100 ? "…" : "");
+        var planCount = (Array.isArray(r.plan) ? r.plan.length : 0) || (r.patch ? Object.keys(r.patch).length : 0);
+        return '<div class="pending-tune-card">'
+          + '<div class="ptc-body">'
+          + '<div class="ptc-meta">'
+          + '<span>#' + escapeHtml(String(r.id != null ? r.id : "?")) + '</span>'
+          + '<span>' + escapeHtml(time) + '</span>'
+          + '<span class="th-source ' + sourceCls + '">' + escapeHtml(sourceText) + '</span>'
+          + '</div>'
+          + '<div class="ptc-diagnosis">' + escapeHtml(diagnosisTrunc || "无诊断报告") + '</div>'
+          + '<div class="ptc-plan-count">' + planCount + ' 项参数建议</div>'
+          + '</div>'
+          + '<div class="ptc-actions">'
+          + '<button class="btn" id="ptcApproveBtn" style="background:var(--ok);color:#fff;border:none;">批准</button>'
+          + '<button class="btn ghost" id="ptcDetailBtn">查看详情</button>'
+          + '</div>'
+          + '</div>';
       }
       function clearTuneHistory() {
         if (!bridge) return;
@@ -3062,6 +3593,7 @@
           callApi(bridge.apiPost("prosocial/tune_history", { action: "clear" })).then(function () {
             toast("已清空", "ok");
             loadTuneHistory();
+            loadPendingTune();
           }).catch(function (e) {
             toast("清空失败: " + e.message, "err");
           });
