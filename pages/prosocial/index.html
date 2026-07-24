@@ -2643,8 +2643,11 @@
               + '<button class="btn-restore" data-kind="example" data-label="' + escapeHtml(r.label || "") + '" data-text="' + escapeHtml(r.text || "") + '" title="恢复到 active 列表">恢复</button>';
           });
           rejKw.forEach(function (r) {
-            html += '<span class="rejected-item">' + escapeHtml(r || "") + '</span>'
-              + '<button class="btn-restore" data-kind="keyword" data-text="' + escapeHtml(r || "") + '" title="恢复到 active 列表">恢复</button>';
+            // v0.3.6：rejected.keywords 格式为 [{"text": str, "kind": str}]
+            // 旧格式 [str] 由后端 set_rejected 自动迁移，前端兼容两种
+            var rText = (typeof r === "object" && r) ? (r.text || "") : String(r || "");
+            html += '<span class="rejected-item">' + escapeHtml(rText) + '</span>'
+              + '<button class="btn-restore" data-kind="keyword" data-text="' + escapeHtml(rText) + '" title="恢复到 active 列表">恢复</button>';
           });
           html += '</div>';
         }

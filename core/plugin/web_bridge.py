@@ -293,8 +293,8 @@ class WebBridgeMixin:
         embed_fn = self._make_embed_fn()
         if action == "reject":
             kind = body.get("kind")
-            if kind not in ("example", "keyword"):
-                return False, "kind 必须是 example 或 keyword"
+            if kind not in ("example", "keyword", "high_keyword", "hate_keyword"):
+                return False, "kind 必须是 example、keyword、high_keyword 或 hate_keyword"
             self.interest_mgr.reject(
                 kind=kind,
                 label=str(body.get("label", "") or ""),
@@ -314,8 +314,8 @@ class WebBridgeMixin:
         if action == "restore":
             # v0.3.6 F2：从 rejected 恢复到 active，持久化 _rejected，后台重算质心
             kind = body.get("kind")
-            if kind not in ("example", "keyword"):
-                return False, "kind 必须是 example 或 keyword"
+            if kind not in ("example", "keyword", "high_keyword", "hate_keyword"):
+                return False, "kind 必须是 example、keyword、high_keyword 或 hate_keyword"
             ok, msg = self.interest_mgr.restore(
                 kind=kind,
                 label=str(body.get("label", "") or ""),

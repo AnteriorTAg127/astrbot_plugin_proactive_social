@@ -27,6 +27,11 @@
 - reject/restore 内存同步操作 + 后台质心重算，前端表格立即反映
 - 旧格式 `_rejected.keywords = [str]` 自动迁移为新格式 `[{"text", "kind"}]`，向后兼容
 
+### Fixed (hotfix)
+- **Bug A 关键词删除报错**（`core/plugin/web_bridge.py` + `core/decision/interest.py`）：前端关键词删除按钮 `data-kind="high_keyword"`/`"hate_keyword"` 被 `set_interests_view` action="reject" 拒绝（仅接受 `"example"`/`"keyword"`），返回 `{"ok":false,"error":"kind 必须是 example 或 keyword"}`。修复：reject/restore 校验放宽到 4 种 kind（`example`/`keyword`/`high_keyword`/`hate_keyword`），与底层 `interest_mgr.reject()` 已支持的 4 种 kind 对齐。`restore()` 同步支持 `high_keyword`/`hate_keyword`（行为与 `keyword` 一致，实际路由由 `_rejected` 中存储的 kind 决定）。
+- **Bug B 已过滤关键词恢复按钮失效**（`pages/prosocial/index.html`）：`_rejected.keywords` 在 v0.3.6 改为 `[{"text": str, "kind": str}]` 字典格式，但前端 `renderInterests` 仍按字符串渲染，导致显示 `[object Object]` 且 `data-text="[object Object]"`，恢复请求带错误 text 后端找不到匹配项。修复：`rejKw.forEach` 提取 `r.text` 字段（兼容旧字符串格式），`data-text` 使用提取后的纯文本。
+- 5 项回归测试（reject high_keyword/hate_keyword 各 1 / restore high_keyword/hate_keyword 各 1 / 未知 kind 仍被拒 1），全量 530/530 通过
+
 ## [0.3.5] - 2026-07-24
 
 ### Added

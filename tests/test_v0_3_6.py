@@ -462,3 +462,68 @@ def test_api_delete_tune_history():
     assert status == 200
     assert body["ok"] is True
     assert body["data"]["cleared"] is True
+
+
+# ======================================================================
+# v0.3.6 hotfix：Bug A reject/restore 接受 4 种 kind
+# （前端删除按钮 data-kind="high_keyword"/"hate_keyword" 之前被 web_bridge 拒绝）
+# ======================================================================
+
+
+def test_reject_high_keyword_via_kind():
+    """Bug A-1: reject(kind="high_keyword") 立即从 high_interest_keywords 移除。"""
+    mgr = _make_interest_mgr_with_data()
+    assert "闲聊" in mgr._data.high_interest_keywords
+    ok, msg = mgr.reject("high_keyword", text="闲聊")
+    assert ok is True
+    assert msg == ""
+    assert "闲聊" not in mgr._data.high_interest_keywords
+    # 存储为 {"text", "kind": "high_keyword"}
+    assert any(
+        k.get("text") == "闲聊" and k.get("kind") == "high_keyword"
+        for k in mgr._rejected["keywords"]
+    )
+
+
+def test_reject_hate_keyword_via_kind():
+    """Bug A-2: reject(kind="hate_keyword") 立即从 hate_keywords 移除。"""
+    mgr = _make_interest_mgr_with_data()
+    assert "骂人" in mgr._data.hate_keywords
+    ok, msg = mgr.reject("hate_keyword", text="骂人")
+    assert ok is True
+    assert msg == ""
+    assert "骂人" not in mgr._data.hate_keywords
+    assert any(
+        k.get("text") == "骂人" and k.get("kind") == "hate_keyword"
+        for k in mgr._rejected["keywords"]
+    )
+
+
+def test_restore_via_high_keyword_kind():
+    """Bug A-3: restore(kind="high_keyword") 与 keyword 行为一致（按存储 kind 路由）。"""
+    mgr = _make_interest_mgr_with_data()
+    mgr.reject("high_keyword", text="闲聊")
+    # 用 high_keyword kind 恢复（前端按钮 data-kind="keyword"，但也应接受 high_keyword）
+    ok, msg = mgr.restore("high_keyword", text="闲聊")
+    assert ok is True
+    assert msg == ""
+    assert "闲聊" in mgr._data.high_interest_keywords
+
+
+def test_restore_via_hate_keyword_kind():
+    """Bug A-4: restore(kind="hate_keyword") 按存储 kind 路由到 hate_keywords。"""
+    mgr = _make_interest_mgr_with_data()
+    mgr.reject("hate_keyword", text="骂人")
+    ok, msg = mgr.restore("hate_keyword", text="骂人")
+    assert ok is True
+    assert msg == ""
+    assert "骂人" in mgr._data.hate_keywords
+
+
+def test_reject_unknown_kind_still_rejected():
+    """Bug A-5: 未知 kind 仍被拒绝（防止放宽校验过度）。"""
+    mgr = _make_interest_mgr_with_data()
+    ok, msg = mgr.reject("invalid_kind", text="foo")
+    assert ok is False
+    assert "未知 kind" in msg
+

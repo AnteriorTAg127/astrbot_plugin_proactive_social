@@ -495,9 +495,11 @@ class InterestManager:
 
         与 reject 互逆：已过滤项可手动恢复，适用于人类操作和 LLM 操作产生的过滤项。
         kind=="example" : 从 _rejected["examples"] 移除，调 _add_back_to_active 加回 items
-        kind=="keyword" : 从 _rejected["keywords"] 查找 text，读取存储的 kind，
-                          调 _add_back_to_active 加回对应列表。
-                          kind="" 默认加回 high_interest_keywords。
+        kind=="keyword" / "high_keyword" / "hate_keyword" : 从 _rejected["keywords"]
+                          查找 text，读取存储的 kind，调 _add_back_to_active 加回
+                          对应列表。kind="" 默认加回 high_interest_keywords。
+                          传入 high_keyword/hate_keyword 与 keyword 行为一致
+                          （实际加回哪个列表由 _rejected 中存储的 kind 决定）。
         质心重算由调用方（web_bridge）触发后台任务，不在此方法内执行。
         返回 (ok, msg)；未生成数据时仅从 rejected 移除（下次 regenerate 会包含）。
         """
@@ -515,8 +517,9 @@ class InterestManager:
             if len(self._rejected["examples"]) == before:
                 return False, f"未找到要恢复的 example: label={label}, text={text}"
             self._add_back_to_active("example", label, text)
-        elif kind == "keyword":
+        elif kind in ("keyword", "high_keyword", "hate_keyword"):
             # 查找存储的 kind，决定加回哪个列表
+            # （传入的 high_keyword/hate_keyword 仅用于校验，实际路由由存储的 kind 决定）
             stored_kind = ""
             found = False
             for k in self._rejected.get("keywords", []):
