@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.3.10] - 2026-07-24
+
+### Added
+- **LLM 调参 Prompt 重构（两段式 + CoT + 范围表）**（T3，`core/plugin/autotune.py` `_build_tune_prompt`）：从原「单段 suggested_patch」重写为 18 段结构——
+  - **两段式输出**：`{diagnosis: "...", plan: [{key, original, suggested, delta, reason, expected_effect_quant}, ...], suggested_keywords_patch, persona_revision, expected_effect_overall}`，LLM 先诊断后调参
+  - **CoT 五步引导**（第 2 段「# 思考流程」）：强制 LLM 按观察数据→诊断问题→假设原因→设计调整方案→量化预期影响五步展开
+  - **全量参数范围表**（第 3 段「# 参数范围参考」）：遍历 `ConfigStore.VALIDATORS` 生成 markdown 表格（约 53 项有规则 + 17 项无规则标注「无范围限制」），避免 LLM 调出 VALIDATORS 范围被静默拒绝
+  - **调参约束段**（第 16 段）：显式告知 LLM 幅度上限公式 / 数量上限 / 必填 reason（引用具体数值）/ 必填 expected_effect_quant（必须含数字）/ 范围限制
+  - **两轮模式支持**：`_build_tune_prompt` 新增 `phase` 参数（`'full'` 默认 / `'diagnosis'` 移除 plan 输出要求 / `'plan'` 注入已生成 diagnosis 后输出 plan）
+- **调参限制逻辑**（T4，`core/plugin/autotune.py` `_validate_plan`）：单次变化幅度上限 `|suggested - original| <= autotune_max_change_ratio * |original|`（默认 0.3 即 ±30%，`|original| < 0.1` 时按 VALIDATORS 范围 1/4）；plan 中参数数 ≤ `autotune_max_params_per_tune`（默认 5）；每项必须含 reason + expected_effect_quant；suggested 值必须在 VALIDATORS 范围内。超限项被剔除并在 diagnosis 末尾注明
+- **TuneHistoryStore 扩表 + 新方法**（T2，`core/storage/tune_history.py`）：表新增 8 字段 `original_values` / `pre_apply_values` / `applied_values` / `diagnosis` / `plan` / `status` / `approved_by` / `error_msg`；新增方法 `list_pending()` / `mark_approved(record_id, applied_values, approved_by)` / `mark_rejected(record_id, approved_by)` / `restore_to_pending(record_id)` / `mark_failed(record_id, error_msg)` / `dedupe_pending_params()`（参数级去重，按时间保留最新）
+- **批准工作流 API**（T7，`core/plugin/web.py` + `web_bridge.py`）：新增 `POST /prosocial/tune/approve` / `POST /prosocial/tune/reject` / `POST /prosocial/tune/restore` / `POST /prosocial/tune/plan`（两轮模式第二轮）4 个 handler；Web API handler 总数 15 → 19
+- **前端历史页扩展**（T8，`pages/prosocial/index.html`）：调参历史每条新增状态徽章（pending/approved/rejected/failed）+ 来源徽章（manual/auto/force）+ diagnosis + plan 分两段展示 + 原始值/当前值/变化量三列表格；新增 status 过滤下拉 + include_archived 开关 + hide_days 输入
+- **前端概览页精简卡片**（T9，`pages/prosocial/index.html`）：概览页内嵌待批准建议精简卡片（每条显示来源徽章 + diagnosis 摘要 + plan 参数数 + 批准/拒绝按钮），点击展开跳转历史页详情
+- **4 项新配置**（T1，`core/storage/config_store.py`）：`autotune_max_change_ratio`(0.3) / `autotune_max_params_per_tune`(5) / `autotune_two_phase_enabled`(false) / `autotune_history_hide_days`(30)
+- **source 字段扩展为三值**：`manual`（手动 analyze）/ `auto`（自动触发）/ `force`（强制触发，原 `manual+force` 合并）
+
+### Changed
+- **analyze 流程重构**（T5，`core/plugin/autotune.py` `llm_autotune`）：analyze 后立即调 `dedupe_pending_params()` 参数级去重；analyze 成功后 record 含 `diagnosis`/`plan`/`original_values`/`status="pending"`；`autotune_two_phase_enabled=true` 时分两轮调用 LLM（diagnosis + plan），只计一次速率限制
+- **apply 流程重构**（T6，`core/plugin/autotune.py`）：apply 改为基于 `record_id` 操作；apply 时先快照 `pre_apply_values`，set_many 成功后快照 `applied_values`，调 `mark_approved(record_id, applied_values, approved_by="auto"/"manual")`；apply 失败调 `mark_failed(record_id, error_msg)`；`autotune_auto_apply=false` 时 analyze 仅入 pending 队列，apply 必须从历史页/概览页手动触发
+- **历史记录默认隐藏 30 天前 non-pending 记录**：`get_tune_history_view` 新增 `hide_days` 参数（默认读 `autotune_history_hide_days` 配置），pending 记录不隐藏
+- `core/plugin/web.py` `get_tune_history` handler 新增 query 参数 `status` / `include_archived` / `hide_days`
+- 插件版本 v0.3.8 → v0.3.10
+
+### Fixed
+- **@ 昵称清洗残留平台 ID 污染 embedding**（`core/scheduler/scheduler.py` `on_message`）：旧正则 `@[\w\u4e00-\u9fa5]{1,20}` 只剥离 `@昵称`，AstrBot At 渲染格式为 `@昵称(平台ID)空格`（如 `@狐白(3693831132) `），残留 `(3693831132)` 数字串仍污染 embedding 导致 s_int 计算失准。修复：改为 `@[^\s()]*\(\d+\)\s*` 完整剥离整个 At token + 兜底 `(?<!\w)@\S{1,30}` 剥离非标准 @ 昵称（不误伤 `user@domain` 邮箱）
+- **Unicode Cf 类不可见格式字符扰乱 embedding 分词**（`core/scheduler/scheduler.py` `on_message`）：新增正则剔除零宽字符（U+200B/C/D ZWSP/ZWNJ/ZWJ）、BOM（U+FEFF）、WJ（U+2060）、方向控制符（U+200E/F LRM/RLM、U+202A-E LRE/RLE/PDF/LRO/RLO、U+2066-9 隔离符），这些字符会让 `len()` 统计失真并扰乱正则字符匹配位置。清洗顺序调整为：特殊字符 → emoji → @ 昵称（避免方向控制符让 `@` 不在词首导致漏匹配）
+
+### Notes
+- 542 既有测试零回归（v0.3.10 新增测试待 T11 补充）
+- LLM 调参建议经范围表提示 + VALIDATORS 校验 + 幅度上限 + 数量上限 + 必填理由五重约束，杜绝超范围/激进调参
+- pending 建议参数级去重：多条 pending 记录存在相同参数键时只保留时间最新的那条的建议值
+- 两轮模式默认关闭（`autotune_two_phase_enabled=false`），开启后分两次 LLM 调用（先 diagnosis 后 plan），只计一次速率限制配额
+- @ 昵称清洗仅作用于入缓冲区文本（影响 embedding 与长度统计），上下文窗口保留原始文本（用于 `short_window_text` 展示）
+- 特殊字符剔除无配置开关，强制剔除（这些字符纯粹是格式噪声，无语义价值）
+
 ## [0.3.8] - 2026-07-24
 
 ### Fixed
