@@ -778,7 +778,11 @@ class BatchPipelineMixin:
                 # v0.3.7：记录主动消息发送时间戳，用于 proactive_min_interval 冷却
                 g["last_proactive_ts"] = now
                 return True
-            # 注入失败 → 降级走旧路径
+            # 注入失败 → 降级走旧路径（直连 llm_generate，不被 STR 追踪）
+            self._log(
+                "warning",
+                f"_dispatch_proactive: inject_fn 返回 False，降级旧路径 group={group_id} umo={umo!r}",
+            )
 
         # 旧路径：惰性构造 prompt → LLM 生成 → 发送
         prompt = fallback_prompt_builder()

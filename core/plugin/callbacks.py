@@ -54,6 +54,13 @@ class CallbacksMixin:
         """构造 llm_fn(prompt) -> str：解析 chat provider 并调 llm_generate。"""
 
         async def llm_fn(prompt: str) -> str:
+            # 警告：此路径直连 context.llm_generate()，绕过 AstrBot pipeline，
+            # 不会被 STR/dashboard 统计追踪（provider_stats 无记录、对话历史不自动保存）。
+            # 主动回复应优先走 inject_fn 管线注入；此处仅降级/后台分析（autotune/interest）使用。
+            self._log(
+                "warning",
+                f"llm_fn 直连调用（不被 STR 追踪），prompt 长度={len(prompt or '')}",
+            )
             try:
                 prov_id = str(self.config.get("chat_provider_id", "") or "")
                 if not prov_id:
@@ -175,9 +182,17 @@ class CallbacksMixin:
                 # 1. 解析 umo（platform_id:message_type:session_id）
                 parts = umo.split(":", 2)
                 if len(parts) != 3:
+                    self._log(
+                        "warning",
+                        f"inject_fn 降级：umo 格式非法（期望 a:b:c）umo={umo!r}",
+                    )
                     return False
                 platform_id, mtype, session_id = parts
                 if mtype != "GroupMessage":
+                    self._log(
+                        "warning",
+                        f"inject_fn 降级：umo 非群消息 mtype={mtype!r} umo={umo!r}",
+                    )
                     return False
 
                 # 2. 定位平台实例（按 meta().id 匹配；umo 首段就是 platform_id）
@@ -190,9 +205,18 @@ class CallbacksMixin:
                                 break
                         except Exception:
                             continue
-                except Exception:
+                except Exception as e:
+                    self._log(
+                        "warning",
+                        f"inject_fn 降级：遍历平台实例异常 platform_id={platform_id!r}: {e}",
+                    )
                     return False
                 if platform_inst is None:
+                    self._log(
+                        "warning",
+                        f"inject_fn 降级：未找到平台实例 platform_id={platform_id!r}"
+                        f"（已加载平台数={len(self.context.platform_manager.get_insts())}）",
+                    )
                     return False
 
                 # 3. 取缓存的 self_id（on_group_message 中从真实事件收集）
