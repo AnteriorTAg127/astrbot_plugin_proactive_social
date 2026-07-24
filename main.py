@@ -32,6 +32,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from .core.decision.interest import InterestManager
+from .core.decision.message_filter import MessageFilter
 
 # 注意：必须用相对导入（from .core.xxx）。AstrBot 把本插件作为
 # data.plugins.astrbot_plugin_proactive_social.main 子包加载，插件目录不在 sys.path 顶层，
@@ -54,7 +55,7 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.3.10")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群组主动插话插件", "v0.3.11")
 class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, Star):
     """主动社交插件入口（模块 G）。
 
@@ -160,6 +161,10 @@ class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, 
             self._config_store.get().get("embedding_rate_limit_per_min", 30)
         )
         self.rate_limiter = TokenBucketRateLimiter(rate_per_min)
+        # v0.3.11：消息过滤器——传 ConfigStore 内部缓存引用（get() 返回 _cache by reference），
+        # 保证 initialize 中 load() 加载的持久化覆盖项与 Web API 热更新即时生效。
+        # 不用 _config_getter()（返回 dict copy 仅快照，无法感知后续 load/set_many）。
+        self._msg_filter = MessageFilter(self._config_store.get())
         # scheduler 在 initialize 中构造（需要 self 的回调闭包）
         self.scheduler: SocialScheduler | None = None
         # llm_fn / embed_fn 存为属性，供 persona reload 与 on_llm_request 钩子复用
@@ -343,6 +348,20 @@ class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, 
             text = event.message_str or ""
             ts = getattr(event.message_obj, "timestamp", None) or int(time.time())
             is_wake = bool(getattr(event, "is_at_or_wake_command", False))
+            # v0.3.11：无意义消息过滤（打卡/赞我/刷屏等不进入决策管线）
+            try:
+                filtered, rule = self._msg_filter.should_filter(
+                    text, user_id, float(ts)
+                )
+                if filtered:
+                    self._log(
+                        "debug",
+                        f"[ProSocial] 消息被过滤 rule={rule} user={user_id} "
+                        f"text={text[:20]!r}",
+                    )
+                    return
+            except Exception as e:
+                self._log("warning", f"[ProSocial] 消息过滤异常: {e}")
             await self.scheduler.on_message(
                 group_id=group_id,
                 umo=umo,

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.11] - 2026-07-25
+
+### Added
+- **无意义消息过滤系统**（`core/decision/message_filter.py` `MessageFilter`）：在 `on_group_message` 入口处过滤"打卡/赞我/111/刷屏"等无意义消息，命中规则的消息**完全不进入决策管线**（不进 buffer、不计 context、不参与评分），直接 return。5 条规则按顺序 A→B→C→D→E 判断，任一命中即过滤：
+  - **A 黑名单匹配**：精确匹配 OR 短消息（长度 ≤ `filter_short_msg_len`）包含黑名单词
+  - **B 无意义短语**：精确匹配 `filter_meaningless_phrases` 词表（"啊啊啊"/"哈哈哈哈"/"嗯嗯"等）
+  - **C 重复刷屏**：同一 user_id 在 `filter_burst_window` 秒内发送 ≥ `filter_burst_count` 条相同消息（去空白后归一化）
+  - **D 纯表情/单字**：正则 `^[\s\W\d_]+$` 匹配 或 长度 == 1
+  - **E 超短消息**：长度 ≤ `filter_short_msg_len` 且不含问号（避免误伤短问句）
+- **6 项新配置**（`_conf_schema.json` + `core/storage/config_store.py`）：`filter_enabled`(true) / `filter_blacklist`(5 词) / `filter_meaningless_phrases`(5 词) / `filter_short_msg_len`(2) / `filter_burst_count`(3) / `filter_burst_window`(10)
+- **47 项单元测试**（`tests/test_message_filter.py`）：覆盖 5 条规则的命中/不命中、时间窗口边界、去空白归一化、按用户隔离、总开关、自定义词表、规则优先级
+
+### Changed
+- `main.py` `on_group_message` 在 self_id 缓存和 nickname 缓存之后、`scheduler.on_message` 之前插入过滤逻辑；过滤命中打 debug 日志（含规则名和文本前 20 字），异常不阻塞主路径
+- 插件版本 v0.3.10 → v0.3.11
+
+### Notes
+- 589 测试全过（542 既有 + 47 新增），零回归
+- 黑名单/短语用 set 加速查找；重复刷屏检测用 deque(maxlen=20) per user，不持久化（重启清空可接受）
+- 被过滤的消息不写入 decision_log，不影响 prosocial: 前缀合成消息和 self_id 缓存
+- 配置项默认值非 null，符合 AstrBot 硬性约束
+
 ## [0.3.10] - 2026-07-24
 
 ### Added

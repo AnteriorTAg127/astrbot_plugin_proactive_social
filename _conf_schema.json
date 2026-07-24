@@ -11,5 +11,41 @@
     "type": "string",
     "default": "",
     "hint": "主动生成用 Embedding Provider 的 ID；留空则自动选择第一个可用的 Embedding Provider。可在 Dashboard「导出」中查看已配置的 Embedding Provider ID"
+  },
+  "filter_enabled": {
+    "description": "过滤系统总开关",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后所有过滤规则失效，打卡/赞我/刷屏等无意义消息会进入决策管线"
+  },
+  "filter_blacklist": {
+    "description": "黑名单词表",
+    "type": "list",
+    "default": ["打卡", "赞我", "+1", "111", "ddd"],
+    "hint": "精确匹配或短消息包含即过滤；每行一个词"
+  },
+  "filter_meaningless_phrases": {
+    "description": "无意义短语词表",
+    "type": "list",
+    "default": ["啊啊啊", "哈哈哈哈", "嗯嗯", "哦哦", "呜呜"],
+    "hint": "纯拟声/无意义短语，精确匹配即过滤；每行一个词"
+  },
+  "filter_short_msg_len": {
+    "description": "超短消息长度阈值",
+    "type": "int",
+    "default": 2,
+    "hint": "长度 ≤ 此值且不含问号的消息视为超短消息过滤（1-20）"
+  },
+  "filter_burst_count": {
+    "description": "重复刷屏条数阈值",
+    "type": "int",
+    "default": 3,
+    "hint": "同一用户在时间窗口内发送 ≥ 此条相同消息触发刷屏过滤（2-100）"
+  },
+  "filter_burst_window": {
+    "description": "重复刷屏时间窗口（秒）",
+    "type": "int",
+    "default": 10,
+    "hint": "重复刷屏检测的时间窗口秒数（1-3600）"
   }
 }

@@ -178,6 +178,13 @@ class ConfigStore:
         "autotune_max_params_per_tune": 5,
         "autotune_two_phase_enabled": False,
         "autotune_history_hide_days": 30,
+        # --- v0.3.11 消息过滤（无意义消息不进入决策管线）---
+        "filter_enabled": True,
+        "filter_blacklist": ["打卡", "赞我", "+1", "111", "ddd"],
+        "filter_meaningless_phrases": ["啊啊啊", "哈哈哈哈", "嗯嗯", "哦哦", "呜呜"],
+        "filter_short_msg_len": 2,
+        "filter_burst_count": 3,
+        "filter_burst_window": 10,
     }
 
     # 类型/范围校验表：(类型, 下限, 上限)；None 表示不校验该侧。
@@ -276,6 +283,11 @@ class ConfigStore:
         "autotune_max_change_ratio": (float, 0.0, 1.0),
         "autotune_max_params_per_tune": (int, 3, 15),
         "autotune_history_hide_days": (int, 1, 365),
+        # v0.3.11 消息过滤
+        "filter_enabled": (bool, None, None),
+        "filter_short_msg_len": (int, 1, 20),
+        "filter_burst_count": (int, 2, 100),
+        "filter_burst_window": (int, 1, 3600),
     }
 
     # list 类型键（校验时 isinstance list）；schedule 单独特判 dict 列表
@@ -285,6 +297,8 @@ class ConfigStore:
             "topic_turn_keywords",
             "rule_direct_wakeup_words",
             "rule_context_wakeup_words",
+            "filter_blacklist",
+            "filter_meaningless_phrases",
         }
     )
 
