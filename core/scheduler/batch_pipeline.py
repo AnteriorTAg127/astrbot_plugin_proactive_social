@@ -604,6 +604,13 @@ class BatchPipelineMixin:
 
             # 14. 触发 -> 生成并发送（v0.2.8 统一走 _dispatch_proactive）
             if triggered:
+                self._log(
+                    "info",
+                    f"[ProSocial] run_batch: 触发 group={group_id} "
+                    f"final={fusion.final_score:.3f} thr={eff_threshold:.3f} "
+                    f"hit={hit_level} personal={personal_triggered} "
+                    f"inject_enabled={bool(cfg.get('reply_via_pipeline', True)) and self._inject is not None}",
+                )
                 # 注入文本：短窗口文本（含「昵称: 内容」上下文），空则退回 batch_text
                 inject_text = g["context"].short_window_text() or batch_text
                 hint = "这是群聊最新动态，请以你的人设自然接一两句话，简短口语化，不要复读。"
@@ -717,9 +724,9 @@ class BatchPipelineMixin:
                             f"[ProSocial] run_batch: 开等待窗口失败 group={group_id}: {e}",
                         )
             else:
-                # 15. 未触发 -> debug
+                # 15. 未触发 -> warning（v0.3.11：从 debug 提升到 warning，便于排查抑制原因）
                 self._log(
-                    "debug",
+                    "warning",
                     f"[ProSocial] run_batch: 未触发 group={group_id} "
                     f"final={fusion.final_score:.3f} thr={eff_threshold:.3f} "
                     f"hit={hit_level} reason={suppressed_reason or 'below_threshold'}",
