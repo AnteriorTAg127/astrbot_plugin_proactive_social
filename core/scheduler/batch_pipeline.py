@@ -729,7 +729,14 @@ class BatchPipelineMixin:
                     "warning",
                     f"[ProSocial] run_batch: 未触发 group={group_id} "
                     f"final={fusion.final_score:.3f} thr={eff_threshold:.3f} "
-                    f"hit={hit_level} reason={suppressed_reason or 'below_threshold'}",
+                    f"base_thr={fusion.threshold:.3f} "
+                    f"adapt={g['adaptive'].multiplier():.3f} "
+                    f"conv_mod={conv_state_mod:.3f} "
+                    f"score_a={float(rule_signal.score_a):.3f} "
+                    f"score_b={float(score_b):.3f} "
+                    f"hit={hit_level} "
+                    f"emb={'None' if batch_emb is None else 'ok'} "
+                    f"reason={suppressed_reason or 'below_threshold'}",
                 )
         except Exception as e:
             self._log("error", f"[ProSocial] run_batch 异常 group={group_id}: {e}")
