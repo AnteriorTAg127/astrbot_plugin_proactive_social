@@ -1,12 +1,13 @@
 """WebBridge 模块（模块 D）：Web API 注册与 WebBridge 鸭子接口实现。
 
 职责：
-1. ``_register_web_apis`` / ``_wrap_web_handler``：注册 12 个 Web API 路由，
+1. ``_register_web_apis`` / ``_wrap_web_handler``：注册 15 个 Web API 路由，
    把 ``core/web.py`` 的 ``(params, body) -> (status, json)`` 适配为
    AstrBot ``register_web_api`` 期望的 handler（统一 200 + 结构化错误）。
-2. WebBridge 鸭子接口实现（10 个方法）：``get_status`` / ``get_decisions`` /
+2. WebBridge 鸭子接口实现（12 个方法）：``get_status`` / ``get_decisions`` /
    ``get_config_view`` / ``set_config_view`` / ``get_groups_view`` / ``set_groups_view`` /
-   ``get_providers_view`` / ``get_interests_view`` / ``set_interests_view`` / ``get_export_view``。
+   ``get_providers_view`` / ``get_interests_view`` / ``set_interests_view`` /
+   ``get_export_view`` / ``get_tune_history_view`` / ``clear_tune_history_view``。
 
 设计要点：
 - Mixin 不定义 ``__init__``，依赖宿主类（``ProSocialPlugin``）提供 ``self.context`` /
@@ -48,7 +49,7 @@ class WebBridgeMixin:
     # Web API 注册与 handler 包装
     # ------------------------------------------------------------------ #
     def _register_web_apis(self):
-        """注册 7 个 Web API，route 加插件名前缀。"""
+        """注册 15 个 Web API，route 加插件名前缀。"""
         # self 实现 WebBridge 鸭子接口（get_status/get_decisions/get_config_view/
         # set_config_view/get_groups_view/set_groups_view）
         handlers = build_handlers(self)
@@ -276,11 +277,15 @@ class WebBridgeMixin:
     async def set_interests_view(self, body: dict) -> tuple[bool, str]:
         """处理兴趣人工过滤操作（F20）与增删改查（F2）。
 
-        body.action == "reject"  : 加 rejected 项并持久化到 KV "interest_rejected"
+        body.action == "reject"  : 加 rejected 项并持久化到 KV "interest_rejected"，
+                                    后台触发 apply_rejected 重算质心（reject 已即时移除，
+                                    重算仅兜底保证质心与 active 一致）
+        body.action == "restore" : v0.3.6 F2：从 rejected 移除并加回 active，
+                                    持久化 _rejected，后台触发 apply_rejected 重算质心
         body.action == "apply"   : 调 apply_rejected 重算质心
         body.action == "add"     : 调 add_item 添加关键词/示例句子
         body.action == "update"  : 调 update_item 更新关键词/示例句子
-        body.action == "remove"  : 调 remove_item 移除关键词/示例句子（不进 rejected）
+        body.action == "remove"  : 调 remove_item 移除关键词/示例句子（v0.3.6 统一进 _rejected 可恢复）
         """
         if not isinstance(body, dict):
             return False, "请求体必须是 JSON 对象"
@@ -303,6 +308,31 @@ class WebBridgeMixin:
             except Exception as e:
                 self._log("warning", f"持久化 interest_rejected 失败: {e}")
                 return False, f"持久化失败: {e}"
+            # v0.3.6：reject 已即时移除 active，后台触发 apply_rejected 重算质心兜底
+            self._bg_apply_rejected(embed_fn)
+            return True, ""
+        if action == "restore":
+            # v0.3.6 F2：从 rejected 恢复到 active，持久化 _rejected，后台重算质心
+            kind = body.get("kind")
+            if kind not in ("example", "keyword"):
+                return False, "kind 必须是 example 或 keyword"
+            ok, msg = self.interest_mgr.restore(
+                kind=kind,
+                label=str(body.get("label", "") or ""),
+                text=str(body.get("text", "") or ""),
+            )
+            if not ok:
+                return False, msg
+            try:
+                await self._config_store.set_kv(
+                    "interest_rejected",
+                    self.interest_mgr.get_rejected(),
+                )
+            except Exception as e:
+                self._log("warning", f"持久化 interest_rejected 失败: {e}")
+                return False, f"持久化失败: {e}"
+            # 后台触发质心重算（restore 已加回 active，重算让其纳入质心）
+            self._bg_apply_rejected(embed_fn)
             return True, ""
         if action == "apply":
             ok, msg = await self.interest_mgr.apply_rejected(embed_fn)
@@ -332,6 +362,62 @@ class WebBridgeMixin:
             text = str(body.get("text", "") or "")
             return await self.interest_mgr.remove_item(kind, label, text, embed_fn)
         return False, "未知 action"
+
+    def _bg_apply_rejected(self, embed_fn) -> None:
+        """v0.3.6：后台触发 apply_rejected 重算质心（不阻塞 Web API 响应）。
+
+        reject/restore 已同步修改 active items/keywords，此处仅触发质心重算
+        让向量数据与 active 列表一致。失败仅 log，不影响主流程。
+        """
+        try:
+            interest_mgr = self.interest_mgr
+            log_fn = self._log
+
+            async def _bg():
+                try:
+                    await interest_mgr.apply_rejected(embed_fn)
+                except Exception as exc:
+                    log_fn("warning", f"后台 apply_rejected 重算质心失败: {exc}")
+
+            asyncio.create_task(_bg())
+        except Exception as e:
+            self._log("warning", f"启动 apply_rejected 后台任务失败: {e}")
+
+    # --- v0.3.6 F3：调参历史 API ---
+
+    async def get_tune_history_view(self, limit: int = 50, offset: int = 0) -> dict:
+        """返回调参历史记录列表 + 统计摘要。
+
+        limit/offset 分页；返回 {records, stats}。
+        records 每条含 id/timestamp/action/source/patch/keywords_patch/persona_revision/
+        analysis/expected_effect/applied。
+        stats 含 total/analyze_count/apply_count/last_timestamp。
+        """
+        try:
+            records = await self._tune_history.list(limit=limit, offset=offset)
+            stats = await self._tune_history.get_stats()
+            return {"records": records, "stats": stats}
+        except Exception as e:
+            self._log("warning", f"get_tune_history_view 失败: {e}")
+            return {
+                "records": [],
+                "stats": {
+                    "total": 0,
+                    "analyze_count": 0,
+                    "apply_count": 0,
+                    "last_timestamp": None,
+                },
+            }
+
+    async def clear_tune_history_view(self) -> tuple[bool, str]:
+        """清空调参历史。返回 (ok, error)。"""
+        try:
+            deleted = await self._tune_history.clear()
+            self._log("info", f"已清空 {deleted} 条调参历史")
+            return True, ""
+        except Exception as e:
+            self._log("warning", f"clear_tune_history_view 失败: {e}")
+            return False, str(e)
 
     def get_export_view(self) -> dict:
         """导出完整配置+决策记录+疲劳+兴趣的 JSON 供 AI 辅助调参（F11）。"""

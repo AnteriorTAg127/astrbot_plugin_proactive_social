@@ -45,6 +45,7 @@ from .core.storage.config_store import SPECIAL_KEYS, ConfigStore
 from .core.storage.migration import migrate_kv_to_sqlite
 from .core.storage.ratelimit import TokenBucketRateLimiter
 from .core.storage.tune_controller import TuneRateLimiter
+from .core.storage.tune_history import TuneHistoryStore
 
 # 插件名（与 metadata.yaml 一致，用于 Web API 路由前缀与数据目录）
 _PLUGIN_NAME = "astrbot_plugin_proactive_social"
@@ -53,7 +54,7 @@ _PLUGIN_NAME = "astrbot_plugin_proactive_social"
 _NO_PROACTIVE_PLATFORMS = {"qq_official", "qq_official_webhook"}
 
 
-@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.3.5")
+@register(_PLUGIN_NAME, "", "主动社交：向量决策驱动的多群主动插话插件", "v0.3.6")
 class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, Star):
     """主动社交插件入口（模块 G）。
 
@@ -179,6 +180,8 @@ class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, 
         # v0.2.9 F4：LLM 调参速率限制器单例（冷却 + 日上限）。
         # state 在 initialize/terminate 经 ConfigStore.get_kv/set_kv 持久化到 SQLite 键 "tune_rate_state"。
         self._tune_limiter = TuneRateLimiter()
+        # v0.3.6 F3：LLM 调参历史持久化（独立 SQLite，与 config.db 分离）
+        self._tune_history = TuneHistoryStore(self.data_dir / "tune_history.db")
 
     # ------------------------------------------------------------------ #
     # initialize：构造回调 + scheduler + Web API + 启动
@@ -443,3 +446,7 @@ class ProSocialPlugin(CommandsMixin, WebBridgeMixin, TuneMixin, CallbacksMixin, 
             await self._config_store.close()
         except Exception as e:
             self._log("warning", f"terminate config_store.close 异常: {e}")
+        try:
+            await self._tune_history.close()
+        except Exception as e:
+            self._log("warning", f"terminate tune_history.close 异常: {e}")

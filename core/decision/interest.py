@@ -189,12 +189,24 @@ class InterestManager:
     def set_rejected(self, rejected: dict) -> None:
         """从 KV 加载后调用，设置 rejected 列表。
 
+        v0.3.6：keywords 格式从 ``[str]`` 迁移为 ``[{"text": str, "kind": str}]``，
+        kind ∈ "high_keyword" | "hate_keyword" | ""。旧格式字符串自动迁移为
+        ``{"text": <str>, "kind": ""}``，保证向后兼容。
+
         容错：非 dict / 缺字段时回退为空结构，不抛异常。
         """
         if isinstance(rejected, dict):
+            # 迁移 keywords：旧格式（str）→ 新格式（dict）
+            raw_keywords = list(rejected.get("keywords", []) or [])
+            migrated_keywords: list[dict] = []
+            for k in raw_keywords:
+                if isinstance(k, dict):
+                    migrated_keywords.append(k)
+                elif isinstance(k, str):
+                    migrated_keywords.append({"text": k, "kind": ""})
             self._rejected = {
                 "examples": list(rejected.get("examples", []) or []),
-                "keywords": list(rejected.get("keywords", []) or []),
+                "keywords": migrated_keywords,
             }
         else:
             self._rejected = {"examples": [], "keywords": []}
@@ -426,12 +438,19 @@ class InterestManager:
             "rejected": self.get_rejected(),
         }
 
-    def reject(self, kind: str, label: str = "", text: str = "") -> None:
-        """加入 rejected 列表，不立即重算质心（前端点「应用过滤」才重算）。
+    def reject(self, kind: str, label: str = "", text: str = "") -> tuple[bool, str]:
+        """v0.3.6：立即从 items/keywords 移除 + 加入 rejected 列表（同步内存操作）。
 
-        kind=="example" : 按 (label, text) 去重加入 examples
-        kind=="keyword" : 按 text 去重加入 keywords
-        非法 kind 静默忽略（不抛异常，前端已校验）。
+        kind=="example"       : 按 (label, text) 去重加入 examples，调 _remove_from_active
+        kind=="keyword"       : 检测 text 在 high_interest_keywords 还是 hate_keywords，
+                                存储对应 kind，调 _remove_from_active 从两个列表都移除
+        kind=="high_keyword"  : 存储 kind="high_keyword"，调 _remove_from_active 从
+                                high_interest_keywords 移除
+        kind=="hate_keyword"  : 存储 kind="hate_keyword"，调 _remove_from_active 从
+                                hate_keywords 移除
+        非法 kind 返回 (False, msg)。
+        质心重算由调用方（web_bridge）触发后台任务，不在此方法内执行。
+        未生成数据时仍加入 rejected（供 regenerate 排除），_remove_from_active 容错跳过。
         """
         if kind == "example":
             existing = {
@@ -442,14 +461,91 @@ class InterestManager:
             if (label, text) not in existing:
                 self._rejected["examples"].append({"label": label, "text": text})
         elif kind == "keyword":
-            if text and text not in self._rejected["keywords"]:
-                self._rejected["keywords"].append(text)
+            # 前端过滤按钮：检测 text 在 high 还是 hate 列表，存储对应 kind
+            detected_kind = ""
+            if self._data is not None:
+                if text in self._data.high_interest_keywords:
+                    detected_kind = "high_keyword"
+                elif text in self._data.hate_keywords:
+                    detected_kind = "hate_keyword"
+            existing_texts = {
+                k.get("text", "")
+                for k in self._rejected.get("keywords", [])
+                if isinstance(k, dict)
+            }
+            if text and text not in existing_texts:
+                self._rejected["keywords"].append({"text": text, "kind": detected_kind})
+        elif kind in ("high_keyword", "hate_keyword"):
+            # remove_item/batch_update 调用：存储对应 kind
+            existing_texts = {
+                k.get("text", "")
+                for k in self._rejected.get("keywords", [])
+                if isinstance(k, dict)
+            }
+            if text and text not in existing_texts:
+                self._rejected["keywords"].append({"text": text, "kind": kind})
+        else:
+            return False, f"未知 kind: {kind}"
+        # v0.3.6：立即从 active items/keywords 移除（即时反映到前端表格）
+        self._remove_from_active(kind, label, text)
+        return True, ""
+
+    def restore(self, kind: str, label: str = "", text: str = "") -> tuple[bool, str]:
+        """v0.3.6 F2：从 rejected 移除 + 加回 items/keywords（同步内存操作）。
+
+        与 reject 互逆：已过滤项可手动恢复，适用于人类操作和 LLM 操作产生的过滤项。
+        kind=="example" : 从 _rejected["examples"] 移除，调 _add_back_to_active 加回 items
+        kind=="keyword" : 从 _rejected["keywords"] 查找 text，读取存储的 kind，
+                          调 _add_back_to_active 加回对应列表。
+                          kind="" 默认加回 high_interest_keywords。
+        质心重算由调用方（web_bridge）触发后台任务，不在此方法内执行。
+        返回 (ok, msg)；未生成数据时仅从 rejected 移除（下次 regenerate 会包含）。
+        """
+        if kind == "example":
+            before = len(self._rejected.get("examples", []))
+            self._rejected["examples"] = [
+                e
+                for e in self._rejected.get("examples", [])
+                if not (
+                    isinstance(e, dict)
+                    and e.get("label", "") == label
+                    and e.get("text", "") == text
+                )
+            ]
+            if len(self._rejected["examples"]) == before:
+                return False, f"未找到要恢复的 example: label={label}, text={text}"
+            self._add_back_to_active("example", label, text)
+        elif kind == "keyword":
+            # 查找存储的 kind，决定加回哪个列表
+            stored_kind = ""
+            found = False
+            for k in self._rejected.get("keywords", []):
+                if isinstance(k, dict) and k.get("text", "") == text:
+                    stored_kind = k.get("kind", "")
+                    found = True
+                    break
+            if not found:
+                return False, f"未找到要恢复的 keyword: {text}"
+            self._rejected["keywords"] = [
+                k
+                for k in self._rejected.get("keywords", [])
+                if not (isinstance(k, dict) and k.get("text", "") == text)
+            ]
+            # stored_kind="hate_keyword" → 加回 hate_keywords
+            # stored_kind="high_keyword" 或 "" → 加回 high_interest_keywords（默认）
+            if stored_kind == "hate_keyword":
+                self._add_back_to_active("hate_keyword", "", text)
+            else:
+                self._add_back_to_active("high_keyword", "", text)
+        else:
+            return False, f"未知 kind: {kind}"
+        return True, ""
 
     async def apply_rejected(
         self,
         embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
     ) -> tuple[bool, str]:
-        """从当前 items/keywords 移除 rejected 项，重新批量嵌入重算质心。
+        """v0.3.6：重算质心兜底（reject 已即时移除，此方法主要触发质心重算 + 持久化）。
 
         - self._data 为 None → (False, "尚未生成兴趣数据")
         - 成功 → (True, "")，更新 self._data 并 _save_npz 持久化
@@ -459,6 +555,7 @@ class InterestManager:
             return False, "尚未生成兴趣数据"
         try:
             data = self._data
+            # v0.3.6：reject 已即时移除，_filter_rejected 兜底（防止状态不一致）
             filtered_items, filtered_high_kw, filtered_hate_kw = self._filter_rejected(
                 data.items, data.high_interest_keywords, data.hate_keywords
             )
@@ -602,41 +699,37 @@ class InterestManager:
         text: str,
         embed_fn: Callable[[list[str]], Awaitable[list[list[float]]]],
     ) -> tuple[bool, str]:
-        """移除关键词或示例句子（不进 rejected 列表，直接删除）。
+        """v0.3.6：移除关键词或示例句子（统一走 reject，所有删除都可恢复）。
 
         kind="example" : 从指定 label 的 InterestItem.examples 中移除
         kind="high_keyword" : 从 high_interest_keywords 中移除
         kind="hate_keyword" : 从 hate_keywords 中移除
-        移除后重算质心并持久化。
+        移除后重算质心并持久化。被移除的项加入 _rejected 列表（可 restore 恢复）。
         """
         if self._data is None:
             return False, "尚未生成兴趣数据"
 
-        found = False
-
+        # 检查项是否存在（保留原有 "未找到" 错误语义）
         if kind == "example":
             level_map = {lv.value: lv for lv in InterestLevel}
             lv = level_map.get(label)
             if lv is None:
                 return False, f"非法 label: {label}"
-            for it in self._data.items:
-                if it.level == lv and text in it.examples:
-                    it.examples.remove(text)
-                    found = True
-                    break
+            found = any(
+                it.level == lv and text in it.examples for it in self._data.items
+            )
         elif kind == "high_keyword":
-            if text in self._data.high_interest_keywords:
-                self._data.high_interest_keywords.remove(text)
-                found = True
+            found = text in self._data.high_interest_keywords
         elif kind == "hate_keyword":
-            if text in self._data.hate_keywords:
-                self._data.hate_keywords.remove(text)
-                found = True
+            found = text in self._data.hate_keywords
         else:
             return False, f"未知 kind: {kind}"
 
         if not found:
             return False, f"未找到要移除的项: {text}"
+
+        # v0.3.6：统一调 reject（加入 _rejected + 从 active 移除）
+        self.reject(kind, label, text)
 
         # 重算质心并持久化
         centroids, dim = await self._recompute_centroids(self._data.items, embed_fn)
@@ -698,7 +791,7 @@ class InterestManager:
                     self._data.hate_keywords.append(text)
                     count += 1
 
-        # 批量 remove（仅内存操作）
+        # 批量 remove（v0.3.6：调 reject 逻辑，加入 _rejected + _remove_from_active）
         for item in removes:
             if not isinstance(item, dict):
                 continue
@@ -707,24 +800,28 @@ class InterestManager:
             text = str(item.get("text", "") or "")
             if kind not in valid_kinds or not text:
                 continue
+            # _remove_from_active 返回 True 表示项在 active 中且已移除
+            removed = self._remove_from_active(kind, label, text)
+            if not removed:
+                continue
+            # 加入 _rejected（与 reject 内部逻辑一致，LLM 删除也可恢复）
             if kind == "example":
-                level_map = {lv.value: lv for lv in InterestLevel}
-                lv = level_map.get(label)
-                if lv is None:
-                    continue
-                for it in self._data.items:
-                    if it.level == lv and text in it.examples:
-                        it.examples.remove(text)
-                        count += 1
-                        break
-            elif kind == "high_keyword":
-                if text in self._data.high_interest_keywords:
-                    self._data.high_interest_keywords.remove(text)
-                    count += 1
-            elif kind == "hate_keyword":
-                if text in self._data.hate_keywords:
-                    self._data.hate_keywords.remove(text)
-                    count += 1
+                existing_ex = {
+                    (e.get("label", ""), e.get("text", ""))
+                    for e in self._rejected.get("examples", [])
+                    if isinstance(e, dict)
+                }
+                if (label, text) not in existing_ex:
+                    self._rejected["examples"].append({"label": label, "text": text})
+            else:  # high_keyword / hate_keyword
+                existing_kw = {
+                    k.get("text", "")
+                    for k in self._rejected.get("keywords", [])
+                    if isinstance(k, dict)
+                }
+                if text not in existing_kw:
+                    self._rejected["keywords"].append({"text": text, "kind": kind})
+            count += 1
 
         if count == 0:
             return 0, ""
@@ -811,7 +908,12 @@ class InterestManager:
             for e in self._rejected.get("examples", [])
             if isinstance(e, dict)
         }
-        rejected_keywords = set(self._rejected.get("keywords", []))
+        # v0.3.6：keywords 格式为 [{"text": str, "kind": str}]，按 text 精确匹配移除
+        rejected_keywords = {
+            k.get("text", "")
+            for k in self._rejected.get("keywords", [])
+            if isinstance(k, dict)
+        }
         filtered_items = [
             InterestItem(
                 level=it.level,
@@ -828,6 +930,74 @@ class InterestManager:
         filtered_high_kw = [k for k in high_kw if k not in rejected_keywords]
         filtered_hate_kw = [k for k in hate_kw if k not in rejected_keywords]
         return filtered_items, filtered_high_kw, filtered_hate_kw
+
+    def _remove_from_active(self, kind: str, label: str, text: str) -> bool:
+        """v0.3.6：从 active items/keywords 中移除指定项（内部方法）。
+
+        kind="example"      : 从指定 label 的 InterestItem.examples 移除
+        kind="keyword"      : 从 high_interest_keywords 和 hate_keywords 都移除
+        kind="high_keyword" : 仅从 high_interest_keywords 移除
+        kind="hate_keyword" : 仅从 hate_keywords 移除
+        self._data 为 None 时返回 False（未生成数据，容错跳过）。
+        """
+        if self._data is None:
+            return False
+        removed = False
+        if kind == "example":
+            level_map = {lv.value: lv for lv in InterestLevel}
+            lv = level_map.get(label)
+            if lv is not None:
+                for it in self._data.items:
+                    if it.level == lv and text in it.examples:
+                        it.examples.remove(text)
+                        removed = True
+                        break
+        elif kind == "keyword":
+            if text in self._data.high_interest_keywords:
+                self._data.high_interest_keywords.remove(text)
+                removed = True
+            if text in self._data.hate_keywords:
+                self._data.hate_keywords.remove(text)
+                removed = True
+        elif kind == "high_keyword":
+            if text in self._data.high_interest_keywords:
+                self._data.high_interest_keywords.remove(text)
+                removed = True
+        elif kind == "hate_keyword":
+            if text in self._data.hate_keywords:
+                self._data.hate_keywords.remove(text)
+                removed = True
+        return removed
+
+    def _add_back_to_active(self, kind: str, label: str, text: str) -> bool:
+        """v0.3.6：将指定项加回 active items/keywords（内部方法）。
+
+        kind="example"                : 加回指定 label 的 InterestItem.examples
+        kind="keyword"/"high_keyword" : 加回 high_interest_keywords
+        kind="hate_keyword"           : 加回 hate_keywords
+        已存在则不加（去重）；self._data 为 None 时返回 False。
+        """
+        if self._data is None:
+            return False
+        added = False
+        if kind == "example":
+            level_map = {lv.value: lv for lv in InterestLevel}
+            lv = level_map.get(label)
+            if lv is not None:
+                for it in self._data.items:
+                    if it.level == lv and text not in it.examples:
+                        it.examples.append(text)
+                        added = True
+                        break
+        elif kind in ("keyword", "high_keyword"):
+            if text not in self._data.high_interest_keywords:
+                self._data.high_interest_keywords.append(text)
+                added = True
+        elif kind == "hate_keyword":
+            if text not in self._data.hate_keywords:
+                self._data.hate_keywords.append(text)
+                added = True
+        return added
 
     @staticmethod
     def _effective_persona(persona_text: str) -> str:

@@ -8,7 +8,8 @@
 依赖的实例属性（由 ``ProSocialPlugin`` / 其他 mixin 提供，经 MRO 在 ``self`` 上访问）：
 ``self.scheduler``、``self._llm_fn`` / ``self._embed_fn``、``self._config_getter()``、
 ``self._config_store``、``self.interest_mgr``、``self._tune_limiter``、
-``self._last_tune_suggestion``、``self._log(level, msg)``、``self.context``。
+``self._last_tune_suggestion``、``self._tune_history``、``self._log(level, msg)``、
+``self.context``。
 """
 
 from __future__ import annotations
@@ -119,6 +120,7 @@ class TuneMixin:
         force: bool = False,
         keywords_patch: dict | None = None,
         persona_revision: str | None = None,
+        source: str = "manual",
     ) -> dict:
         """v0.2.9 F1/F2/F4：LLM 诊断调参核心（全视野 + denylist + 速率限制）。
 
@@ -177,6 +179,19 @@ class TuneMixin:
             }
             # analyze 成功后 record（计入配额；force=True 也 record）
             self._tune_limiter.record(now)
+            try:
+                await self._tune_history.record(
+                    action="analyze",
+                    source=source,
+                    patch=filtered,
+                    keywords_patch=suggested_keywords,
+                    persona_revision=persona_rev,
+                    analysis=analysis,
+                    expected_effect=str(parsed.get("expected_effect", "") or ""),
+                    applied=False,
+                )
+            except Exception as e:
+                self._log("warning", f"调参历史记录失败(analyze): {e}")
             return {
                 "ok": True,
                 "analysis": analysis,
@@ -241,6 +256,20 @@ class TuneMixin:
                     )
                 except Exception as e:
                     self._log("warning", f"启动后台 apply 任务失败: {e}")
+            # v0.3.6：apply 成功后记录调参历史（在清空缓存之前）
+            try:
+                await self._tune_history.record(
+                    action="apply",
+                    source=source,
+                    patch=filtered,
+                    keywords_patch=keywords_patch,
+                    persona_revision=persona_revision,
+                    analysis="",
+                    expected_effect="",
+                    applied=True,
+                )
+            except Exception as e:
+                self._log("warning", f"调参历史记录失败(apply): {e}")
             # 应用成功后清空缓存，避免重复 apply
             self._last_tune_suggestion = None
             return {
@@ -383,12 +412,14 @@ class TuneMixin:
                 # 允许强制触发，记录 force_history
                 self._tune_limiter.record_force(now)
 
-            result = await self.llm_autotune("analyze", force=force)
+            result = await self.llm_autotune("analyze", force=force, source="auto")
             if result.get("ok") and self._config_getter().get(
                 "autotune_auto_apply", False
             ):
                 try:
-                    apply_result = await self.llm_autotune("apply", force=True)
+                    apply_result = await self.llm_autotune(
+                        "apply", force=True, source="auto"
+                    )
                     result["apply_result"] = apply_result
                 except Exception as e:
                     self._log("warning", f"_autotune_trigger auto_apply 失败: {e}")

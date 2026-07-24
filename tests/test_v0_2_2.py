@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import asyncio
 
-from core.decision.interest import InterestManager
 from core.common.models import InterestLevel
+from core.decision.interest import InterestManager
 from core.plugin.web import build_handlers
 
 # ---------------------------------------------------------------------- #
@@ -105,7 +105,9 @@ def test_export_view_includes_rejected(mock_llm, mock_embed, mock_log, tmp_data_
     view = mgr.export_view()
     assert len(view["rejected"]["examples"]) == 1
     assert view["rejected"]["examples"][0] == {"label": "core", "text": "foo"}
-    assert view["rejected"]["keywords"] == ["bar"]
+    # v0.3.6：keywords 为 dict 格式 [{"text": str, "kind": str}]；"bar" 不在已生成
+    # 数据的 high/hate 列表中，detected_kind=""
+    assert view["rejected"]["keywords"] == [{"text": "bar", "kind": ""}]
 
 
 # ====================================================================== #
@@ -133,8 +135,9 @@ def test_reject_keyword_dedup(mock_log, tmp_data_dir):
     mgr.reject("keyword", text="bar")
     r = mgr.get_rejected()
     assert len(r["keywords"]) == 2
-    assert "foo" in r["keywords"]
-    assert "bar" in r["keywords"]
+    # v0.3.6：keywords 为 dict 格式；未生成数据时 detected_kind=""
+    assert {"text": "foo", "kind": ""} in r["keywords"]
+    assert {"text": "bar", "kind": ""} in r["keywords"]
 
 
 def test_reject_invalid_kind_ignored(mock_log, tmp_data_dir):
@@ -168,7 +171,11 @@ def test_set_get_rejected_roundtrip(mock_log, tmp_data_dir):
             {"label": "core", "text": "foo"},
             {"label": "hate", "text": "bar"},
         ],
-        "keywords": ["kw1", "kw2"],
+        # v0.3.6：keywords 为 dict 格式 [{"text": str, "kind": str}]
+        "keywords": [
+            {"text": "kw1", "kind": ""},
+            {"text": "kw2", "kind": "high_keyword"},
+        ],
     }
     mgr.set_rejected(rejected)
     assert mgr.get_rejected() == rejected
@@ -182,7 +189,8 @@ def test_get_rejected_returns_copy(mock_log, tmp_data_dir):
     r["keywords"].append("bar")
     r["examples"].append({"label": "x", "text": "y"})
     r2 = mgr.get_rejected()
-    assert r2["keywords"] == ["foo"]
+    # v0.3.6：keywords 为 dict 格式；未生成数据时 kind=""
+    assert r2["keywords"] == [{"text": "foo", "kind": ""}]
     assert r2["examples"] == []
 
 

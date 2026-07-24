@@ -4,6 +4,8 @@
 
 ## 功能
 
+- **兴趣关键词即时反映 + 恢复（v0.3.6）**：删除/修改兴趣关键词后表格立即反映（reject 改为同步内存操作）；已过滤项在「已过滤选项」区可一键「恢复」回到 active 列表，人类操作与 LLM 自主操作产生的过滤项统一可恢复；reject/restore 后台触发质心重算兜底，前端无需手动「应用过滤」
+- **LLM 调参历史页面（v0.3.6）**：Dashboard 新增「调参历史」tab，展示每次 LLM 调参的完整记录（时间/动作/来源/应用状态/分析全文/参数补丁/关键词增删/人设改写/预期效果），含统计卡片（总次数/analyze/apply/最近时间）与清空按钮；独立 SQLite `tune_history.db` 持久化，区分手动触发与自动触发（source=manual/auto）
 - **对话状态模块（v0.3.5）**：轻量级纯启发式对话状态评估器（零 LLM/embedding 调用），从群聊情绪氛围与对话角色多维度判断当前是否适合插话：has_question（有人抛问）/ bot_turn（轮到机器人说话）/ is_casual_chat（闲聊）/ is_monologue（自言自语）/ is_argument（激烈争论），输出 modifier 修正 eff_threshold（0.7 放宽 ~ 1.3 收紧），将"期待度"从单纯的文本匹配扩展为多维信号，降低机械感
 - **短批次合并（v0.3.5）**：批次文本过短（< batch_min_text_length）且消息 ≤ 1 时回填缓冲区等待下一次合并，最多合并 batch_short_merge_max_attempts 次后强制评估，减少短消息噪声决策
 - **Emoji 过滤（v0.3.5）**：入缓冲区前移除 Unicode emoji 字符，纯 emoji 消息不入缓冲，净化 embedding 向量质量
@@ -35,7 +37,7 @@
 - **多群轮询与作息调度**：时段±抖动、单群专注、群冷却、五态状态机
 - **群白名单 + 快捷开关**：whitelist/all 模式，AND 语义实时生效
 - **DRY_RUN + 决策日志环 + 每日指标**
-- **Dashboard 前端**：状态/决策记录/得分趋势/实时配置/群管理/兴趣管理/JSON 导出/LLM 调参，12 个 Web API
+- **Dashboard 前端**：状态/决策记录/得分趋势/实时配置/群管理/兴趣管理/JSON 导出/LLM 调参/调参历史，15 个 Web API
 - **历史回放**：JSONL 按时间流速喂入决策管线，强制不发送
 
 ## 安装

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.3.6] - 2026-07-24
+
+### Added
+- **兴趣关键词即时反映（F1，`core/decision/interest.py`）**：`reject(kind, label, text)` 改为同步内存操作——立即从 active items/keywords 移除并加入 `_rejected` 列表，前端表格刷新后即时显示删除效果，不再需要手动「应用过滤」。新增 `_remove_from_active()` 内部方法统一处理 active 列表的移除逻辑（example 按 label+text 精确匹配，keyword 检测在 high 还是 hate 列表自动归类 kind）。`remove_item()` 与 `batch_update(removes)` 统一改走 reject 路径，所有删除（人类手动 + LLM 自动）都进入 `_rejected` 可恢复。
+- **已过滤项恢复机制（F2，`core/decision/interest.py`）**：新增 `restore(kind, label, text)` 方法，从 `_rejected` 移除并调 `_add_back_to_active()` 加回 active items/keywords（与 reject 互逆）。keyword 类恢复时按存储的 `kind` 字段自动加回到 high_interest_keywords 或 hate_keywords。`_rejected.keywords` 格式从 `[str]` 迁移为 `[{"text": str, "kind": "high_keyword"|"hate_keyword"|""}]`，旧格式字符串自动迁移。Web API `POST /prosocial/interests` 新增 `action="restore"` 分支，reject/restore 后台触发 `apply_rejected` 重算质心兜底。
+- **LLM 调参历史持久化（F3，`core/storage/tune_history.py` 新建）**：`TuneHistoryStore` 类独立 SQLite 数据库 `tune_history.db`（与 config.db 分离），表 `tune_history(id, timestamp, action, source, patch_json, keywords_patch_json, persona_revision, analysis, expected_effect, applied)` + 时间降序索引。`record()` 插入记录，`list(limit, offset)` 分页查询，`clear()` 清空，`get_stats()` 返回 total/analyze_count/apply_count/last_timestamp。`autotune.py llm_autotune` 在 analyze/apply 成功后调用 `record()` 持久化，新增 `source` 参数（"manual"/"auto"）区分手动触发与自动触发。
+- **调参历史展示页面（F3，`pages/prosocial/index.html`）**：Dashboard 新增「调参历史」tab：顶部 4 个统计卡片（总次数 / analyze / apply / 最近时间）+ 可展开历史列表（每条显示 [时间][动作标签][来源][应用状态] + 分析摘要，展开后显示 analysis 全文、参数补丁 key-value 表、关键词增删列表、人设改写、预期效果）+ 清空历史按钮（二次确认）。Web API 新增 `GET /prosocial/tune_history?limit=50&offset=0` 与 `DELETE /prosocial/tune_history` + `POST` 别名（bridge 无 apiDelete）。
+- 16 项 v0.3.6 单元测试（F1 reject 即时移除 3 / F2 restore 恢复 4 / F3 调参历史持久化 6 / API 透传 3）
+
+### Changed
+- `interest.py reject()` 由「仅加入 _rejected 等待 apply_rejected 移除」改为「立即 _remove_from_active + 加入 _rejected」，`apply_rejected()` 语义弱化为质心重算兜底
+- `interest.py remove_item()` 与 `batch_update(removes)` 统一调 reject 逻辑，所有删除路径汇聚到单一可恢复入口
+- `interest.py _filter_rejected()` 适配新 `[{"text", "kind"}]` 格式
+- `web_bridge.py set_interests_view` reject/restore 后台触发 `_bg_apply_rejected()` 重算质心
+- `web_bridge.py` 新增 `get_tune_history_view()` / `clear_tune_history_view()` 方法
+- `web.py build_handlers` 返回 12 → 15 个 handler（新增 GET/DELETE/POST `/prosocial/tune_history`）
+- `main.py __init__` 注入 `self._tune_history = TuneHistoryStore(data_dir / "tune_history.db")`；`terminate()` 关闭连接
+- `autotune.py llm_autotune` 签名新增 `source: str = "manual"` 关键字参数；`_autotune_trigger` 调用时传 `source="auto"`
+- Web API handler 总数 12 → 15（新增 tune_history GET/DELETE/POST 三个）
+- 插件版本 v0.3.5 → v0.3.6
+
+### Notes
+- 509 既有测试零回归（新增 16 项 v0.3.6 测试，全量 525/525 通过）
+- 调参历史独立 SQLite 文件，与 config.db 分离避免影响配置表性能
+- reject/restore 内存同步操作 + 后台质心重算，前端表格立即反映
+- 旧格式 `_rejected.keywords = [str]` 自动迁移为新格式 `[{"text", "kind"}]`，向后兼容
+
 ## [0.3.5] - 2026-07-24
 
 ### Added

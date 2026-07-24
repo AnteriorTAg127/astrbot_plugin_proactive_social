@@ -92,6 +92,21 @@ class _MockBridge:
             "version": "v0.2.6",
         }
 
+    # v0.3.6 F3：调参历史 mock
+    async def get_tune_history_view(self, limit: int = 50, offset: int = 0) -> dict:
+        return {
+            "records": [],
+            "stats": {
+                "total": 0,
+                "analyze_count": 0,
+                "apply_count": 0,
+                "last_timestamp": None,
+            },
+        }
+
+    async def clear_tune_history_view(self) -> tuple[bool, str]:
+        return True, ""
+
     async def run_autotune(self, body: dict) -> dict:
         # F3：LLM 诊断调参 mock —— 固定返回 analyze 成功结果
         # v0.2.9 T6.2：显式捕获 force / keywords_patch / persona_revision
@@ -604,12 +619,12 @@ def test_web_post_autotune_bridge_exception_500():
 
 
 # ---------------------------------------------------------------------- #
-# 全部 12 handler 存在
+# 全部 15 handler 存在
 # ---------------------------------------------------------------------- #
 
 
-def test_web_build_handlers_returns_twelve():
-    """build_handlers 返回恰好 12 个 handler（v0.2.8 新增 autotune POST）。"""
+def test_web_build_handlers_returns_fifteen():
+    """build_handlers 返回恰好 15 个 handler（v0.3.6 新增 tune_history GET/DELETE/POST）。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     expected = {
@@ -625,13 +640,16 @@ def test_web_build_handlers_returns_twelve():
         "POST /prosocial/interests",
         "GET /prosocial/export",
         "POST /prosocial/autotune",
+        "GET /prosocial/tune_history",
+        "DELETE /prosocial/tune_history",
+        "POST /prosocial/tune_history",
     }
     assert set(handlers.keys()) == expected
-    assert len(handlers) == 12
+    assert len(handlers) == 15
 
 
 def test_web_all_handlers_async_callable():
-    """12 个 handler 都是 async 可调用。"""
+    """15 个 handler 都是 async 可调用。"""
     bridge = _MockBridge()
     handlers = build_handlers(bridge)
     for key, h in handlers.items():

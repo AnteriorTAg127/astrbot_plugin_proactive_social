@@ -4,9 +4,10 @@
 - 本文件**严禁 import astrbot**，仅用标准库，保证 core/ 可离线单元测试。
 - main.py 实现 `WebBridge` 鸭子类型接口（get_status / get_decisions / get_config_view /
   set_config_view / get_groups_view / set_groups_view / get_providers_view /
-  get_interests_view / set_interests_view），并负责通过
+  get_interests_view / set_interests_view / get_tune_history_view /
+  clear_tune_history_view），并负责通过
   `context.register_web_api` 注册路由、把本模块返回的 `(status, json)` 封装为 HTTP 响应。
-- `build_handlers(bridge)` 返回 12 个 async handler，签名统一为
+- `build_handlers(bridge)` 返回 15 个 async handler，签名统一为
   `async (params: dict, body: dict | None) -> tuple[int, dict]`。
 - 统一响应格式：成功 `(200, {"ok": True, "data": ...})`；
   失败 `(400, {"ok": False, "error": "..."})`；内部异常 `(500, {"ok": False, "error": "..."})`。
@@ -30,7 +31,8 @@ class WebBridge:
 
     同步方法：get_status / get_decisions / get_config_view / get_groups_view /
               get_providers_view / get_interests_view
-    异步方法：set_config_view / set_groups_view / set_interests_view（返回 (ok, error)）
+    异步方法：set_config_view / set_groups_view / set_interests_view（返回 (ok, error)）/
+              get_tune_history_view / clear_tune_history_view
     """
 
     def get_status(self) -> dict:  # pragma: no cover - 接口声明
@@ -69,6 +71,20 @@ class WebBridge:
     def get_export_view(self) -> dict:  # pragma: no cover
         ...
 
+    async def get_tune_history_view(
+        self, limit: int = 50, offset: int = 0
+    ) -> dict:  # pragma: no cover
+        """v0.3.6 F3：返回调参历史记录 + 统计摘要。
+
+        返回 ``{records: [...], stats: {total, analyze_count, apply_count, last_timestamp}}``。
+        records 按 timestamp DESC 排序，每条含 id/timestamp/action/source/patch/
+        keywords_patch/persona_revision/analysis/expected_effect/applied。
+        """
+
+    async def clear_tune_history_view(self) -> tuple[bool, str]:  # pragma: no cover
+        """v0.3.6 F3：清空调参历史。返回 ``(ok, error)``。"""
+        ...
+
     async def run_autotune(self, body: dict) -> dict:  # pragma: no cover
         """LLM 诊断调参（v0.2.8 F3 引入；v0.2.9 T6.1 扩展透传字段）。
 
@@ -104,7 +120,7 @@ def _err(msg: str, status: int = 400) -> tuple[int, dict]:
 
 
 def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
-    """构造 12 个 Web API handler，key 形如 'GET /prosocial/status'。
+    """构造 15 个 Web API handler，key 形如 'GET /prosocial/status'。
 
     main.py 遍历此 dict，按 METHOD/PATH 注册到 `context.register_web_api`，
     并在自身 handler 中解析 query/body 调用对应函数，把返回的 (status, json) 转为响应。
@@ -258,6 +274,57 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         except Exception as e:
             return _err(str(e), 500)
 
+    async def get_tune_history(params: dict, body: dict | None) -> tuple[int, dict]:
+        try:
+            # 解析 limit/offset query 参数，缺省 limit=50 / offset=0
+            raw_limit = params.get("limit", 50)
+            raw_offset = params.get("offset", 0)
+            try:
+                limit = int(raw_limit)
+            except (TypeError, ValueError):
+                return _err("limit 必须是整数")
+            try:
+                offset = int(raw_offset)
+            except (TypeError, ValueError):
+                return _err("offset 必须是整数")
+            # clamp 到合理范围
+            if limit < 1:
+                limit = 1
+            elif limit > 500:
+                limit = 500
+            if offset < 0:
+                offset = 0
+            data = await bridge.get_tune_history_view(limit=limit, offset=offset)
+            return _ok(data)
+        except Exception as e:
+            return _err(str(e), 500)
+
+    async def delete_tune_history(params: dict, body: dict | None) -> tuple[int, dict]:
+        try:
+            ok, err = await bridge.clear_tune_history_view()
+            if not ok:
+                return _err(err)
+            return _ok({"cleared": True})
+        except Exception as e:
+            return _err(str(e), 500)
+
+    async def post_tune_history(params: dict, body: dict | None) -> tuple[int, dict]:
+        """POST 别名：bridge 无 apiDelete，前端用 action=clear 清空历史。"""
+        try:
+            if body is None:
+                return _err("请求体不能为空")
+            if not isinstance(body, dict):
+                return _err("请求体必须是 JSON 对象")
+            action = body.get("action", "")
+            if action == "clear":
+                ok, err = await bridge.clear_tune_history_view()
+                if not ok:
+                    return _err(err)
+                return _ok({"cleared": True})
+            return _err("未知 action，仅支持 'clear'")
+        except Exception as e:
+            return _err(str(e), 500)
+
     return {
         "GET /prosocial/status": get_status,
         "GET /prosocial/decisions": get_decisions,
@@ -271,4 +338,7 @@ def build_handlers(bridge: WebBridge) -> dict[str, Handler]:
         "POST /prosocial/interests": post_interests,
         "GET /prosocial/export": get_export,
         "POST /prosocial/autotune": post_autotune,
+        "GET /prosocial/tune_history": get_tune_history,
+        "DELETE /prosocial/tune_history": delete_tune_history,
+        "POST /prosocial/tune_history": post_tune_history,
     }

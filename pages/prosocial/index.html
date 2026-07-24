@@ -722,13 +722,55 @@
         .cfg-grid { grid-template-columns: 1fr; }
         main { padding: 10px; gap: 10px; }
       }
+
+      /* ===== v0.3.6 调参历史 Tab ===== */
+      .tune-history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+      .tune-history-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
+      .tune-history-header button { padding: 6px 12px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; border-radius: 6px; font-size: 12px; }
+      .tune-history-header button:hover { background: var(--bg-elev); }
+      .tune-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+      .stat-card { background: var(--bg-elev); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid var(--border); }
+      .stat-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+      .stat-value { font-size: 20px; font-weight: bold; color: var(--text); }
+      .tune-history-list { display: flex; flex-direction: column; gap: 8px; }
+      .tune-history-item { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--card); }
+      .tune-history-item .item-header { padding: 10px 12px; cursor: pointer; display: flex; gap: 8px; align-items: center; background: var(--card-2); }
+      .tune-history-item .item-header:hover { background: var(--bg-elev); }
+      .tune-history-item .item-time { font-size: 12px; color: var(--muted); min-width: 140px; }
+      .tune-history-item .item-action { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+      .tune-history-item .item-source { font-size: 12px; color: var(--muted); }
+      .tune-history-item .item-applied { font-size: 12px; color: var(--muted); }
+      .tune-history-item .item-preview { font-size: 12px; color: var(--subtle); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tune-history-item .item-details { display: none; padding: 12px; border-top: 1px solid var(--border); }
+      .tune-history-item.expanded .item-details { display: block; }
+      .detail-section { margin-bottom: 12px; }
+      .detail-section h4 { font-size: 12px; color: var(--muted); margin: 0 0 6px 0; font-weight: 600; }
+      .analysis-text { white-space: pre-wrap; font-size: 13px; background: var(--bg-elev); padding: 8px; border-radius: 6px; color: var(--text); }
+      .patch-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+      .patch-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); color: var(--text); }
+      .patch-table td:first-child { color: var(--muted); width: 40%; }
+      .kw-patch { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+      .kw-patch li { padding: 4px 8px; color: var(--text); }
+      .persona-revision { white-space: pre-wrap; font-size: 13px; background: var(--warn-soft); padding: 8px; border-radius: 6px; color: var(--text); }
+      .expected-effect { font-size: 13px; color: var(--muted); font-style: italic; }
+      .detail-empty { color: var(--subtle); font-size: 13px; }
+
+      /* ===== v0.3.6 已过滤项恢复按钮 ===== */
+      .btn-restore {
+        display: inline-block; padding: 2px 8px; margin: 2px;
+        background: var(--ok); color: #fff; border: none;
+        border-radius: 4px; font-size: 11px; cursor: pointer;
+        vertical-align: middle;
+      }
+      .btn-restore:hover { opacity: .85; }
+      .btn-restore:disabled { opacity: .5; cursor: not-allowed; }
     </style>
   </head>
   <body>
     <header>
       <div class="brand">
         <div class="logo">PS</div>
-        <h1>主动社交<span class="sub">任务控制台 v0.3.5</span></h1>
+        <h1>主动社交<span class="sub">任务控制台 v0.3.6</span></h1>
       </div>
       <span class="meta" id="lastRefresh">未刷新</span>
       <span id="errBanner"></span>
@@ -744,6 +786,7 @@
       <button class="top-tab" data-tab="groups">群管理</button>
       <button class="top-tab" data-tab="interests">兴趣关键词</button>
       <button class="top-tab" data-tab="config">配置</button>
+      <button class="top-tab" data-tab="tune-history">调参历史</button>
     </nav>
 
     <main>
@@ -948,6 +991,28 @@
           </section>
         </div>
       </div>
+
+      <!-- ===== Tab 6: 调参历史（v0.3.6）===== -->
+      <div class="tab-panel" data-tab="tune-history">
+        <section class="panel span-12">
+          <div class="tune-history-header">
+            <h3>LLM 调参历史</h3>
+            <div>
+              <button onclick="loadTuneHistory()">刷新</button>
+              <button onclick="clearTuneHistory()" style="background:var(--err);color:white;">清空历史</button>
+            </div>
+          </div>
+          <div class="tune-stats" id="tune-stats">
+            <div class="stat-card"><div class="stat-label">总次数</div><div class="stat-value num" id="tune-stat-total">—</div></div>
+            <div class="stat-card"><div class="stat-label">analyze</div><div class="stat-value num" id="tune-stat-analyze">—</div></div>
+            <div class="stat-card"><div class="stat-label">apply</div><div class="stat-value num" id="tune-stat-apply">—</div></div>
+            <div class="stat-card"><div class="stat-label">最近时间</div><div class="stat-value" id="tune-stat-last" style="font-size:13px;">—</div></div>
+          </div>
+          <div id="tune-history-list" class="tune-history-list">
+            <div class="empty">切换到此页加载…</div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <!-- Toast 提示 -->
@@ -999,7 +1064,7 @@
       var currentCfgTab = "basic";  // 当前激活的配置分组
 
       // F19 顶层 tab 状态
-      var TAB_KEYS = ["overview", "decisions", "groups", "interests", "config"];
+      var TAB_KEYS = ["overview", "decisions", "groups", "interests", "config", "tune-history"];
       var TAB_STORAGE_KEY = "prosocial_tab";
       var currentTab = "overview";
 
@@ -2374,10 +2439,11 @@
 	        content._interestBound = true;
 	        content.addEventListener("click", function (e) {
 	          var delBtn = e.target.closest ? e.target.closest(".del") : null;
-	          var subBtn = e.target.closest ? e.target.closest(".sub-tab") : null;
-	          var addBtn = e.target.closest ? e.target.closest(".add-confirm") : null;
-	          var editBtn = e.target.closest ? e.target.closest(".edit-btn") : null;
-	          if (delBtn) {
+          var restoreBtn = e.target.closest ? e.target.closest(".btn-restore") : null;
+          var subBtn = e.target.closest ? e.target.closest(".sub-tab") : null;
+          var addBtn = e.target.closest ? e.target.closest(".add-confirm") : null;
+          var editBtn = e.target.closest ? e.target.closest(".edit-btn") : null;
+          if (delBtn) {
 	            if (delBtn._disabled) return;
 	            var kind = delBtn.getAttribute("data-kind");
 	            var label = delBtn.getAttribute("data-label") || "";
@@ -2386,7 +2452,14 @@
 	            delBtn._disabled = true;
 	            delBtn.disabled = true;
 	            rejectInterest(kind, label, text, delBtn);
-	          } else if (addBtn) {
+          } else if (restoreBtn) {
+            // v0.3.6：恢复已过滤项
+            var kind = restoreBtn.getAttribute("data-kind");
+            var label = restoreBtn.getAttribute("data-label") || "";
+            var text = restoreBtn.getAttribute("data-text") || "";
+            if (!kind || !text) return;
+            restoreInterest(kind, label, text);
+          } else if (addBtn) {
 	            // F2: add interest item
 	            var kind = addBtn.getAttribute("data-kind");
 	            var label = addBtn.getAttribute("data-label") || "";
@@ -2564,12 +2637,14 @@
         var rejKw = rejected.keywords || [];
         if (rejEx.length || rejKw.length) {
           html += '<div class="rejected-area">';
-          html += '<div class="title">已过滤项（如需恢复，请重新生成人设）</div>';
+          html += '<div class="title">已过滤项（点「恢复」可加回 active 列表）</div>';
           rejEx.forEach(function (r) {
-            html += '<span class="rejected-item">[' + escapeHtml(r.label || "") + '] ' + escapeHtml(r.text || "") + '</span>';
+            html += '<span class="rejected-item">[' + escapeHtml(r.label || "") + '] ' + escapeHtml(r.text || "") + '</span>'
+              + '<button class="btn-restore" data-kind="example" data-label="' + escapeHtml(r.label || "") + '" data-text="' + escapeHtml(r.text || "") + '" title="恢复到 active 列表">恢复</button>';
           });
           rejKw.forEach(function (r) {
-            html += '<span class="rejected-item">' + escapeHtml(r || "") + '</span>';
+            html += '<span class="rejected-item">' + escapeHtml(r || "") + '</span>'
+              + '<button class="btn-restore" data-kind="keyword" data-text="' + escapeHtml(r || "") + '" title="恢复到 active 列表">恢复</button>';
           });
           html += '</div>';
         }
@@ -2586,6 +2661,19 @@
 	        }).catch(function (e) {
 	          toast("过滤失败: " + e.message, "err");
 	          if (btn) { btn._disabled = false; btn.disabled = false; }
+	        });
+	      }
+	      // v0.3.6：恢复已过滤项到 active 列表
+	      function restoreInterest(kind, label, text) {
+	        if (!bridge) return;
+	        if (!confirm("确认恢复该项到 active 列表？")) return;
+	        var body = { action: "restore", kind: kind, text: text };
+	        if (kind === "example") body.label = label;
+	        callApi(bridge.apiPost("prosocial/interests", body)).then(function () {
+	          toast("已恢复", "ok");
+	          loadInterests();   // 恢复后刷新（rejected + active 同步更新）
+	        }).catch(function (e) {
+	          toast("恢复失败: " + e.message, "err");
 	        });
 	      }
 	      // F2: add interest item
@@ -2643,6 +2731,8 @@
         }
         // 切到 interests 时加载兴趣数据
         if (key === "interests") loadInterests();
+        // 切到 tune-history 时加载调参历史
+        if (key === "tune-history") loadTuneHistory();
       }
       function initTab() {
         var saved = null;
@@ -2856,6 +2946,86 @@
           toggles[gid] = el.checked;
           callApi(bridge.apiPost("prosocial/groups", { group_toggles: toggles })).then(renderGroups)
             .catch(function (e) { showErr("群开关切换失败: " + e.message); loadGroups(); });
+        });
+      }
+
+      // ============ 调参历史 Tab6（v0.3.6）============
+      function loadTuneHistory() {
+        if (!bridge) return;
+        var listEl = document.getElementById("tune-history-list");
+        if (listEl) listEl.innerHTML = '<div class="empty">加载中…</div>';
+        callApi(bridge.apiGet("prosocial/tune_history", { limit: 50 })).then(function (data) {
+          if (!data || typeof data !== "object") {
+            if (listEl) listEl.innerHTML = '<div class="empty">无数据</div>';
+            return;
+          }
+          // 渲染统计
+          document.getElementById("tune-stat-total").textContent = data.stats.total;
+          document.getElementById("tune-stat-analyze").textContent = data.stats.analyze_count;
+          document.getElementById("tune-stat-apply").textContent = data.stats.apply_count;
+          document.getElementById("tune-stat-last").textContent = data.stats.last_timestamp
+            ? new Date(data.stats.last_timestamp * 1000).toLocaleString("zh-CN")
+            : "无";
+          // 渲染列表
+          if (!data.records || data.records.length === 0) {
+            listEl.innerHTML = '<div class="empty">暂无调参历史记录</div>';
+            return;
+          }
+          listEl.innerHTML = data.records.map(function (r) { return renderTuneHistoryItem(r); }).join("");
+        }).catch(function (e) {
+          if (listEl) listEl.innerHTML = '<div class="empty">加载失败: ' + escapeHtml(e.message) + '</div>';
+        });
+      }
+      function renderTuneHistoryItem(r) {
+        var time = new Date(r.timestamp * 1000).toLocaleString("zh-CN");
+        var actionColor = r.action === "apply" ? "var(--ok)" : "var(--accent)";
+        var sourceLabel = r.source === "auto" ? "自动" : "手动";
+        var appliedLabel = r.applied ? "已应用" : "未应用";
+        var analysisText = r.analysis || "";
+        var analysisPreview = analysisText.substring(0, 100) + (analysisText.length > 100 ? "…" : "");
+        // patch 表格
+        var patchRows = r.patch ? Object.keys(r.patch).map(function (k) {
+          return "<tr><td>" + escapeHtml(k) + "</td><td>" + escapeHtml(String(r.patch[k])) + "</td></tr>";
+        }).join("") : '<tr><td colspan="2" class="detail-empty">无</td></tr>';
+        // keywords_patch 列表
+        var kwHtml = '<div class="detail-empty">无</div>';
+        if (r.keywords_patch) {
+          var adds = (r.keywords_patch.add || []).map(function (a) {
+            return "<li>+ [" + escapeHtml(a.kind || "?") + "] " + escapeHtml(a.label || "") + " : " + escapeHtml(a.text || "") + "</li>";
+          }).join("");
+          var removes = (r.keywords_patch.remove || []).map(function (a) {
+            return "<li>- [" + escapeHtml(a.kind || "?") + "] " + escapeHtml(a.label || "") + " : " + escapeHtml(a.text || "") + "</li>";
+          }).join("");
+          if (adds || removes) {
+            kwHtml = '<ul class="kw-patch">' + adds + removes + "</ul>";
+          }
+        }
+        return '<div class="tune-history-item">'
+          + '<div class="item-header" onclick="this.parentElement.classList.toggle(\'expanded\')">'
+          + '<span class="item-time num">' + escapeHtml(time) + "</span>"
+          + '<span class="item-action" style="background:' + actionColor + ';color:#fff;">' + escapeHtml(r.action || "?") + "</span>"
+          + '<span class="item-source">' + escapeHtml(sourceLabel) + "</span>"
+          + '<span class="item-applied">' + escapeHtml(appliedLabel) + "</span>"
+          + '<span class="item-preview">' + escapeHtml(analysisPreview) + "</span>"
+          + "</div>"
+          + '<div class="item-details">'
+          + '<div class="detail-section"><h4>分析</h4><div class="analysis-text">' + escapeHtml(analysisText || "无") + "</div></div>"
+          + '<div class="detail-section"><h4>参数补丁 (' + (r.patch ? Object.keys(r.patch).length : 0) + " 项)</h4><table class=\"patch-table\">" + patchRows + "</table></div>"
+          + '<div class="detail-section"><h4>关键词补丁</h4>' + kwHtml + "</div>"
+          + (r.persona_revision ? '<div class="detail-section"><h4>人设改写</h4><div class="persona-revision">' + escapeHtml(r.persona_revision) + "</div></div>" : "")
+          + (r.expected_effect ? '<div class="detail-section"><h4>预期效果</h4><div class="expected-effect">' + escapeHtml(r.expected_effect) + "</div></div>" : "")
+          + "</div>"
+          + "</div>";
+      }
+      function clearTuneHistory() {
+        if (!bridge) return;
+        if (!confirm("确认清空所有调参历史？此操作不可恢复。")) return;
+        // bridge 无 apiDelete，用 POST action=clear 别名（后端 DELETE + POST 双注册）
+        callApi(bridge.apiPost("prosocial/tune_history", { action: "clear" })).then(function () {
+          toast("已清空", "ok");
+          loadTuneHistory();
+        }).catch(function (e) {
+          toast("清空失败: " + e.message, "err");
         });
       }
 
